@@ -1,0 +1,32 @@
+numpy==1.26.4
+mediapipe
+
+# PyTorch (CPU) + vision
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
+
+# OpenCV compatible with NumPy 1.x
+opencv-python==4.10.0.84
+
+# OpenMMLab installer for MMPose models
+openmim==0.3.9
+
+# ANCIENT dependencies we need before installing MMPose dependencies
+# Use pip install separately on each of these
+chumpy==0.70
+xtcocotools==1.14.3
+pycocotools==2.0.10
+cython==3.2.1
+shapely==2.1.2
+terminaltables==3.1.10
+json-tricks==3.17.3
+munkres==1.1.4
+
+# Core dependencies for MMPose models
+# Install using mim install
+mmengine==0.10.7
+mmcv==2.1.0
+mmdet==3.2.0
+mmpose==1.3.2
+
+
