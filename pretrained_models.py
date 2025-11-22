@@ -83,6 +83,7 @@ class MMPoseCfg:
         self.opencv_num_threads = opencv_num_threads
         self.dist_backend = dist_backend
 
+
     def file_check(self):
         # Check local file paths
         if not os.path.exists(self.config_path):
@@ -91,8 +92,9 @@ class MMPoseCfg:
         if not os.path.exists(self.checkpoint_path):
             raise FileNotFoundError(f"Checkpoint not found at: {self.checkpoint_path}")
 
+
     def create_model(self):
-        assert self.file_check is True
+        self.file_check()
 
         register_all_modules()
 
@@ -103,6 +105,7 @@ class MMPoseCfg:
                            self.checkpoint_path,
                            device=self.device)
         return model
+
 
     def topdown_infer(
         self,

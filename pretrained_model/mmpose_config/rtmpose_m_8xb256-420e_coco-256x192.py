@@ -2,7 +2,7 @@
 from mmengine.config import read_base
 
 with read_base():
-    from mmpose.configs._base_.default_runtime import *
+    from .default_runtime import *
 
 from albumentations.augmentations import Blur, CoarseDropout, MedianBlur
 from mmdet.datasets.transforms import YOLOXHSVRandomAug
