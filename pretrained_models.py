@@ -1,6 +1,7 @@
 import os
 import torch
 import cv2
+import numpy as np
 
 import mediapipe as mp
 from mediapipe.tasks.python import vision
@@ -41,9 +42,6 @@ class MediaPipeCfg:
         return HandLandmarkerOptions
 
 
-
-ImageType = Union[str, "np.ndarray"]  # path or image
-BBoxesType = Optional[List[Dict[str, Any]]]  # list of bounding boxes
 
 class MMPoseCfg:
     """
@@ -110,8 +108,8 @@ class MMPoseCfg:
     def topdown_infer(
         self,
         model,
-        img: ImageType,
-        bboxes: BBoxesType = None,
+        img: Union[str, "np.ndarray"],
+        bboxes: Optional[List[Dict[str, Any]]] = None,
         **kwargs
     ):
         """
