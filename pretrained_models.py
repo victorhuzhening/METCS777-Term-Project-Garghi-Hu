@@ -10,8 +10,6 @@ from mmpose.apis import init_model, inference_topdown
 from mmpose.utils import register_all_modules
 from typing import Optional, Dict, Any, Union, List
 
-
-
 class MediaPipeCfg:
     """
     MediaPipe configuration options for Hand Landmarker model
