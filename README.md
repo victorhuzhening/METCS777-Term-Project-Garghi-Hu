@@ -38,8 +38,8 @@ The main dataset we will be using is the How2Sign dataset which contains videos 
 We will obtain the data from How2Sign’s publicly available website at: How2Sign Dataset. Specifically we will use the Green Screen RGB Clips (frontal view) and English translation (original) subsets for training. The total size of the video dataset is close to 35 GB, which is infeasible for machine learning training on a singular machine.
 
 
-**1.7 CONTRIBUTIONS
-**
+**1.7 CONTRIBUTIONS**
+
 Vamsi Garghi:
 Contribution 1: Finding the dataset for training
 Contribution 2: Proposal Writing
