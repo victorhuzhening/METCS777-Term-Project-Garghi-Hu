@@ -125,45 +125,6 @@ def hand_landmarks_to_json(results_sequence):
     return {"num_frames": len(frames), "frames": frames}
 
 
-# def write_sequence_to_json(results_sequence, json_path):
-#   """
-#   Write a sequence of HandLandmarkerResult (e.g. sample['hand_landmarks'])
-#   to a JSON file.
-#   """
-#   jsonable = hand_sequence_to_jsonable(results_sequence)
-#   with open(json_path, "w", encoding="utf-8") as f:
-#     json.dump(jsonable, f, indent=2)
-
-
-# def tensor_to_list(x):
-#     """Convert torch / numpy tensors to nested Python lists."""
-#     if hasattr(x, "cpu"):  # torch.Tensor
-#         return x.cpu().numpy().tolist()
-#     elif isinstance(x, np.ndarray):
-#         return x.tolist()
-#     else:  # if None
-#         return x
-#
-#
-# def pred_instances_to_jsonable(pred_instances):
-#     """
-#     Convert PoseDataSample.pred_instances into a JSON-serializable dict.
-#
-#     Structure returned:
-#     {
-#         "keypoints":        List[N][K][2 or 3],
-#         "keypoint_scores":  List[N][K],
-#         "scores":           List[N],
-#         "bboxes":           List[N][4]
-#     }
-#     """
-#     jsonable = {"keypoints": tensor_to_list(getattr(pred_instances, "keypoints", None).keypoints),
-#                 "keypoint_scores": tensor_to_list(getattr(pred_instances, "keypoint_scores", None).keypoint_scores),
-#                 "scores": tensor_to_list(getattr(pred_instances, "scores", None).scores),
-#                 "bboxes": tensor_to_list(getattr(pred_instances, "bboxes", None).bboxes)}
-#
-#     return jsonable
-
 def tensor_to_list(x):
     """Utility: convert torch.Tensor / np.ndarray / None to plain Python lists."""
     if x is None:
@@ -232,3 +193,49 @@ def pose_data_to_json(results_sequence):
         "num_frames": len(frames),
         "frames": frames,
     }
+
+
+def extract_left_right_hands(result: HandLandmarkerResult):
+    """
+    From a single HandLandmarkerResult, return two (21, 3) arrays:
+      left_hand, right_hand, each with [x, y, z] per joint.
+    If a hand is missing, it's all zeros.
+
+    Returns:
+      left_hand:  np.ndarray shape (21, 3)
+      right_hand: np.ndarray shape (21, 3)
+    """
+    # Default: zeros
+    left = np.zeros((21, 3), dtype=np.float32)
+    right = np.zeros((21, 3), dtype=np.float32)
+
+    hand_lms = getattr(result, "hand_landmarks", [])
+    handedness = getattr(result, "handedness", [])
+
+    for idx, lm_list in enumerate(hand_lms):
+        # Convert landmarks to (21, 3)
+        arr = np.array([[lm.x, lm.y, lm.z] for lm in lm_list], dtype=np.float32)
+        # Pad or truncate to 21 if weird size
+        if arr.shape[0] < 21:
+            pad = np.zeros((21 - arr.shape[0], 3), dtype=np.float32)
+            arr = np.concatenate([arr, pad], axis=0)
+        elif arr.shape[0] > 21:
+            arr = arr[:21]
+
+        # Determine if this is left or right from handedness
+        hand_label = "unknown"
+        if idx < len(handedness) and len(handedness[idx]) > 0:
+            hand_label = handedness[idx][0].category_name.lower()
+
+        if "left" in hand_label:
+            left = arr
+        elif "right" in hand_label:
+            right = arr
+        else:
+            # If unknown, just put it into whichever is still zero
+            if np.allclose(left, 0):
+                left = arr
+            else:
+                right = arr
+
+    return left, right
