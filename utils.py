@@ -5,6 +5,8 @@ from mediapipe import solutions
 from mediapipe.tasks.python.vision.hand_landmarker import HandLandmarkerResult
 from mediapipe.framework.formats import landmark_pb2
 from mmpose.structures import PoseDataSample
+import math
+from collections import Counter
 
 """
 Function is credited to Google's The MediaPipe Authors 2023 Copyright
@@ -84,47 +86,6 @@ def handedness_to_dict(handedness_list):
     return out
 
 
-# def hand_landmarker_result_to_jsonable(result: HandLandmarkerResult):
-#     """
-#     Convert a single HandLandmarkerResult into a JSON-serializable dict.
-#     """
-#     data = {
-#         "hand_landmarks": [],
-#         "hand_world_landmarks": [],
-#         "handedness": [],
-#         "timestamps_ms": getattr(result, "timestamps_ms", None),
-#     }
-#
-#     for landmark_list in getattr(result, "hand_landmarks", []):
-#         data["hand_landmarks"].append(landmark_list_to_dict(landmark_list))
-#
-#     for world_landmark_list in getattr(result, "hand_world_landmarks", []):
-#         data["hand_world_landmarks"].append(landmark_list_to_dict(world_landmark_list))
-#
-#     for handedness_list in getattr(result, "handedness", []):
-#         data["handedness"].append(handedness_to_dict(handedness_list))
-#
-#     return data
-#
-#
-# def hand_landmarks_to_json(results_sequence):
-#     """
-#     Convert a list of HandLandmarkerResult (one per frame) into nested JSON.
-#
-#     results_sequence: list of HandLandmarkerResult
-#     """
-#     frames = []
-#     for frame_idx, res in enumerate(results_sequence):
-#         frames.append(
-#             {
-#                 "frame_index": frame_idx,
-#                 "result": hand_landmarker_result_to_jsonable(res),
-#             }
-#         )
-#
-#     return {"num_frames": len(frames), "frames": frames}
-
-
 def tensor_to_list(x):
     """Utility: convert torch.Tensor / np.ndarray / None to plain Python lists."""
     if x is None:
@@ -143,56 +104,6 @@ def tensor_to_list(x):
 
     # already Python lists or other types
     return x
-
-
-# def pred_instances_to_jsonable(pred_instances):
-#     """
-#     Convert PoseDataSample.pred_instances into a JSON-serializable dict.
-#
-#     pred_instances is an InstanceData. Its fields are tensors/ndarrays:
-#       - keypoints: [num_instances, num_kpts, 2]
-#       - keypoint_scores: [num_instances, num_kpts]
-#       - scores: [num_instances]
-#       - bboxes: [num_instances, 4]
-#     """
-#     keypoints = getattr(pred_instances, "keypoints", None)
-#     keypoint_scores = getattr(pred_instances, "keypoint_scores", None)
-#     scores = getattr(pred_instances, "scores", None)
-#     bboxes = getattr(pred_instances, "bboxes", None)
-#
-#     jsonable = {
-#         "keypoints": tensor_to_list(keypoints),
-#         "keypoint_scores": tensor_to_list(keypoint_scores),
-#         "scores": tensor_to_list(scores),
-#         "bboxes": tensor_to_list(bboxes),
-#     }
-#     return jsonable
-#
-#
-#
-# def pose_data_to_json(results_sequence):
-#     frames = []
-#
-#     for frame_idx, pose_samples in enumerate(results_sequence):
-#         # pose_samples: list[PoseDataSample] for this frame
-#         instances_json = [
-#             {
-#                 "pred_instances": pred_instances_to_jsonable(sample.pred_instances)
-#             }
-#             for sample in pose_samples
-#         ]
-#
-#         frames.append(
-#             {
-#                 "frame_index": frame_idx,
-#                 "instances": instances_json,
-#             }
-#         )
-#
-#     return {
-#         "num_frames": len(frames),
-#         "frames": frames,
-#     }
 
 
 def extract_body_by_frame(pose_data_samples):
@@ -353,3 +264,94 @@ def hand_coordinates_to_seq(hand_coordinates_sequence):
         )
 
     return {"num_frames": len(frames), "frames": frames}
+
+
+def build_id_to_token(vocab: dict) -> dict:
+    """
+    Builds id to token mapping helper.
+    Converts {token: id} → {id: token}.
+    """
+    return {idx: tok for tok, idx in vocab.items()}
+
+
+def tokens_to_text(
+    ids,
+    id_to_token,
+    pad_id: int,
+    bos_token: str = "<bos>",
+    eos_token: str = "<eos>",
+):
+    """
+    Convert a sequence of token IDs into a space-separated string.
+    Skips <pad> and <bos>, stops at first <eos>.
+    """
+    tokens = []
+    for i in ids:
+        i = int(i)
+
+        if i == pad_id:
+            continue  # ignore padding
+
+        tok = id_to_token.get(i, "<unk>")
+
+        if tok == bos_token:
+            continue  # skip <bos>
+
+        if tok == eos_token:
+            break  # stops at first <eos>
+
+        tokens.append(tok)
+
+    return " ".join(tokens)
+
+
+def bleu1(pred_tokens, label_tokens):
+    """
+    Custom BLEU score calculation between label and prediction tokens.
+    Avoids extra dependencies.
+    """
+    if len(pred_tokens) == 0:
+        return 0.0
+
+    pred_counts = Counter(pred_tokens)
+    ref_counts = Counter(label_tokens)
+
+    # unigram overlap
+    overlap = sum(min(pred_counts[word], ref_counts[word]) for word in pred_counts)
+
+    precision = overlap / len(pred_tokens)
+
+    # brevity penalty
+    label_len = len(label_tokens)
+    pred_len = len(pred_tokens)
+
+    if pred_len == 0:
+        return 0.0
+    if pred_len > label_len:
+        bleu_score = 1.0
+    else:
+        bleu_score = math.exp(1.0 - label_len / pred_len)
+
+    return bleu_score * precision
+
+
+def rouge1_f1(pred_tokens, label_tokens):
+    """
+    Custom ROUGE score calculation between label and prediction tokens.
+    Avoids extra dependencies.
+    """
+    if not pred_tokens or not label_tokens:
+        return 0.0
+
+    pred_counts = Counter(pred_tokens)
+    label_counts = Counter(label_tokens)
+
+    overlap = sum(min(pred_counts[word], label_counts[word]) for word in pred_counts)
+
+    precision = overlap / len(pred_tokens)
+    recall = overlap / len(label_tokens)
+
+    if precision + recall == 0:
+        return 0.0
+
+    return 2 * precision * recall / (precision + recall)

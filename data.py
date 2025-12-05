@@ -1,5 +1,6 @@
 import cv2
 import os
+from glob import glob
 import torch
 import pyarrow as pa
 import pyarrow.csv as csv
@@ -7,6 +8,36 @@ import mediapipe as mp
 from torch.utils.data import Dataset
 from utils import *
 from tokenizer import *
+
+
+class CameraCfg:
+    """
+    Camera configuration to set up a livestream input using webcam
+    Output is defined using VideoWriter
+    """
+
+    def __init__(self, cameraIdx: int, fps: float, is_array: bool):
+        self.CameraIdx = cameraIdx  # default camera (usually webcam)
+        self.FPS = fps
+        self.OutputPath = "output.mp4" if not is_array else "coordinates.csv"
+
+    def create_camera(self):
+        cam = cv2.VideoCapture(self.CameraIdx, cv2.CAP_DSHOW)
+        if not cam.isOpened():
+            raise RuntimeError("ERROR: could not open camera")
+        frame_width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # define codec
+        out = cv2.VideoWriter(self.OutputPath, fourcc, self.FPS, (frame_width, frame_height))
+        return cam, out, frame_width, frame_height
+
+
+class CameraData(Dataset):
+    def __init__(self, camera_idx, MP_model, body_cfg, body_model):
+        self.camera_idx = camera_idx
+        self.MP_model = MP_model
+        self.body_cfg = body_cfg
+        self.body_model = body_model
 
 
 def load_sentence_labels(csv_path):
@@ -243,31 +274,46 @@ def asl_collate_func(batch, pad_id):
     }
 
 
-class CameraCfg:
+class PrecomputedASLData(Dataset):
     """
-    Camera configuration to set up a livestream input using webcam
-    Output is defined using VideoWriter
+    Loads precomputed ASL samples from .pt files.
+
+    Each sample_XXXXX.pt must be a dict with keys:
+      - pose:       FloatTensor [T, D]
+      - pose_len:   int
+      - label_ids:  LongTensor [L]
+      - label_len:  int
+      - filename:   str
+      - raw_label:  str
+
+    A separate vocab_meta.pt must exist in the same directory with:
+      {
+        "vocab": {token: id},
+        "pad_id": int,
+      }
     """
 
-    def __init__(self, cameraIdx: int, fps: float, is_array: bool):
-        self.CameraIdx = cameraIdx  # default camera (usually webcam)
-        self.FPS = fps
-        self.OutputPath = "output.mp4" if not is_array else "coordinates.csv"
+    def __init__(self, data_dir: str):
+        super().__init__()
+        self.sample_paths = sorted(glob(os.path.join(data_dir, "sample_*.pt")))
+        if not self.sample_paths:
+            raise RuntimeError(f"No sample_*.pt files found in {data_dir}")
 
-    def create_camera(self):
-        cam = cv2.VideoCapture(self.CameraIdx, cv2.CAP_DSHOW)
-        if not cam.isOpened():
-            raise RuntimeError("ERROR: could not open camera")
-        frame_width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # define codec
-        out = cv2.VideoWriter(self.OutputPath, fourcc, self.FPS, (frame_width, frame_height))
-        return cam, out, frame_width, frame_height
+        vocab_meta = torch.load(os.path.join(data_dir, "vocab_meta.pt"))
+        self.vocab = vocab_meta["vocab"]
+        self.pad_id = vocab_meta["pad_id"]
 
+    def __len__(self):
+        return len(self.sample_paths)
 
-class CameraData(Dataset):
-    def __init__(self, camera_idx, MP_model, body_cfg, body_model):
-        self.camera_idx = camera_idx
-        self.MP_model = MP_model
-        self.body_cfg = body_cfg
-        self.body_model = body_model
+    def __getitem__(self, idx):
+        sample = torch.load(self.sample_paths[idx], map_location="cpu")
+        # Safety check to satisfy collate function expectations
+        return {
+            "features": sample["features"],
+            "feature_len": sample["feature_len"],
+            "label_ids": sample["label_ids"],
+            "label_len": sample["label_len"],
+            "filename": sample["filename"],
+            "raw_label": sample["raw_label"],
+        }
