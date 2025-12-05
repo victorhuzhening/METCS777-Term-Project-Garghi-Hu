@@ -1,6 +1,7 @@
 from utils import *
 from data import *
 from model import *
+from mode_test import PoseToTextTransformer, build_model_from_dims
 
 import argparse
 
@@ -176,6 +177,13 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--enc_hidden", type=int, default=256)
     parser.add_argument("--emb_dim", type=int, default=256)
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default="transformer",
+        choices=["gru", "transformer"],
+        help="Choose GRU baseline or Transformer (default).",
+    )
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument(
         "--val_split",
@@ -243,20 +251,27 @@ def main():
     first_batch = next(iter(train_loader))
     feature_dim = first_batch["features"].shape[-1]
 
-    # Build model
-    model = PoseToTextModel(
-        feature_dim=feature_dim,
-        enc_hidden=args.enc_hidden,
-        vocab_size=vocab_size,
-        emb_dim=args.emb_dim,
-        pad_id=pad_id,
-    ).to(device)
+    # Build model (default: Transformer from mode_test)
+    if args.model_type == "gru":
+        model = PoseToTextModel(
+            feature_dim=feature_dim,
+            enc_hidden=args.enc_hidden,
+            vocab_size=vocab_size,
+            emb_dim=args.emb_dim,
+            pad_id=pad_id,
+        ).to(device)
+    else:
+        model = build_model_from_dims(
+            feature_dim=feature_dim,
+            vocab_size=vocab_size,
+            pad_id=pad_id,
+        ).to(device)
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=pad_id)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     print(f"Total samples: {num_samples} | Train: {num_train} | Val: {num_val}")
-    print(f"Vocab size: {vocab_size} | feature dim: {feature_dim}")
+    print(f"Vocab size: {vocab_size} | feature dim: {feature_dim} | model: {args.model_type}")
 
     best_val_loss = float("inf")
 
