@@ -1,5 +1,6 @@
 .venv/
-data/
+data/raw_videos
+data/how2sign_realigned_train.csv
 __pycache__/
 .idea/
 output.mp4

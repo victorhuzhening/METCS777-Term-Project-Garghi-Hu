@@ -84,45 +84,45 @@ def handedness_to_dict(handedness_list):
     return out
 
 
-def hand_landmarker_result_to_jsonable(result: HandLandmarkerResult):
-    """
-    Convert a single HandLandmarkerResult into a JSON-serializable dict.
-    """
-    data = {
-        "hand_landmarks": [],
-        "hand_world_landmarks": [],
-        "handedness": [],
-        "timestamps_ms": getattr(result, "timestamps_ms", None),
-    }
-
-    for landmark_list in getattr(result, "hand_landmarks", []):
-        data["hand_landmarks"].append(landmark_list_to_dict(landmark_list))
-
-    for world_landmark_list in getattr(result, "hand_world_landmarks", []):
-        data["hand_world_landmarks"].append(landmark_list_to_dict(world_landmark_list))
-
-    for handedness_list in getattr(result, "handedness", []):
-        data["handedness"].append(handedness_to_dict(handedness_list))
-
-    return data
-
-
-def hand_landmarks_to_json(results_sequence):
-    """
-    Convert a list of HandLandmarkerResult (one per frame) into nested JSON.
-
-    results_sequence: list of HandLandmarkerResult
-    """
-    frames = []
-    for frame_idx, res in enumerate(results_sequence):
-        frames.append(
-            {
-                "frame_index": frame_idx,
-                "result": hand_landmarker_result_to_jsonable(res),
-            }
-        )
-
-    return {"num_frames": len(frames), "frames": frames}
+# def hand_landmarker_result_to_jsonable(result: HandLandmarkerResult):
+#     """
+#     Convert a single HandLandmarkerResult into a JSON-serializable dict.
+#     """
+#     data = {
+#         "hand_landmarks": [],
+#         "hand_world_landmarks": [],
+#         "handedness": [],
+#         "timestamps_ms": getattr(result, "timestamps_ms", None),
+#     }
+#
+#     for landmark_list in getattr(result, "hand_landmarks", []):
+#         data["hand_landmarks"].append(landmark_list_to_dict(landmark_list))
+#
+#     for world_landmark_list in getattr(result, "hand_world_landmarks", []):
+#         data["hand_world_landmarks"].append(landmark_list_to_dict(world_landmark_list))
+#
+#     for handedness_list in getattr(result, "handedness", []):
+#         data["handedness"].append(handedness_to_dict(handedness_list))
+#
+#     return data
+#
+#
+# def hand_landmarks_to_json(results_sequence):
+#     """
+#     Convert a list of HandLandmarkerResult (one per frame) into nested JSON.
+#
+#     results_sequence: list of HandLandmarkerResult
+#     """
+#     frames = []
+#     for frame_idx, res in enumerate(results_sequence):
+#         frames.append(
+#             {
+#                 "frame_index": frame_idx,
+#                 "result": hand_landmarker_result_to_jsonable(res),
+#             }
+#         )
+#
+#     return {"num_frames": len(frames), "frames": frames}
 
 
 def tensor_to_list(x):
@@ -145,57 +145,91 @@ def tensor_to_list(x):
     return x
 
 
-def pred_instances_to_jsonable(pred_instances):
+# def pred_instances_to_jsonable(pred_instances):
+#     """
+#     Convert PoseDataSample.pred_instances into a JSON-serializable dict.
+#
+#     pred_instances is an InstanceData. Its fields are tensors/ndarrays:
+#       - keypoints: [num_instances, num_kpts, 2]
+#       - keypoint_scores: [num_instances, num_kpts]
+#       - scores: [num_instances]
+#       - bboxes: [num_instances, 4]
+#     """
+#     keypoints = getattr(pred_instances, "keypoints", None)
+#     keypoint_scores = getattr(pred_instances, "keypoint_scores", None)
+#     scores = getattr(pred_instances, "scores", None)
+#     bboxes = getattr(pred_instances, "bboxes", None)
+#
+#     jsonable = {
+#         "keypoints": tensor_to_list(keypoints),
+#         "keypoint_scores": tensor_to_list(keypoint_scores),
+#         "scores": tensor_to_list(scores),
+#         "bboxes": tensor_to_list(bboxes),
+#     }
+#     return jsonable
+#
+#
+#
+# def pose_data_to_json(results_sequence):
+#     frames = []
+#
+#     for frame_idx, pose_samples in enumerate(results_sequence):
+#         # pose_samples: list[PoseDataSample] for this frame
+#         instances_json = [
+#             {
+#                 "pred_instances": pred_instances_to_jsonable(sample.pred_instances)
+#             }
+#             for sample in pose_samples
+#         ]
+#
+#         frames.append(
+#             {
+#                 "frame_index": frame_idx,
+#                 "instances": instances_json,
+#             }
+#         )
+#
+#     return {
+#         "num_frames": len(frames),
+#         "frames": frames,
+#     }
+
+
+def extract_body_by_frame(pose_data_samples):
     """
-    Convert PoseDataSample.pred_instances into a JSON-serializable dict.
+    From a list[PoseDataSample] for a single frame, extract a single
+    person's body pose as:
 
-    pred_instances is an InstanceData. Its fields are tensors/ndarrays:
-      - keypoints: [num_instances, num_kpts, 2]
-      - keypoint_scores: [num_instances, num_kpts]
-      - scores: [num_instances]
-      - bboxes: [num_instances, 4]
+      body_xy:     (K*2,) flattened [x0,y0,x1,y1,...]
+      body_scores: (K,)  keypoint confidences
+
+    If nothing is detected, returns zeros of size (K*2,) and (K,).
+    We infer K from the first non-empty sample.
     """
-    keypoints = getattr(pred_instances, "keypoints", None)
-    keypoint_scores = getattr(pred_instances, "keypoint_scores", None)
-    scores = getattr(pred_instances, "scores", None)
-    bboxes = getattr(pred_instances, "bboxes", None)
+    # Get first sample with keypoints - assumes only one person in frame
+    for sample in pose_data_samples:
+        instances = getattr(sample, "pred_instances", None)
+        keypoints = getattr(sample, "keypoints", None)
+        confidence_scores = getattr(sample, "keypoint_scores", None)
 
-    jsonable = {
-        "keypoints": tensor_to_list(keypoints),
-        "keypoint_scores": tensor_to_list(keypoint_scores),
-        "scores": tensor_to_list(scores),
-        "bboxes": tensor_to_list(bboxes),
-    }
-    return jsonable
+        if instances is None or keypoints is None or confidence_scores is None:
+            continue
 
+        keypoints = keypoints[0].numpy().astype(np.float32)  # convert shape from [num_instances, K, 2] to [K, 2]
+        confidence_scores = confidence_scores[0].numpy().astype(
+            np.float32)  # convert shape from [num_instances, K] to [K]
 
+        # flatten to 1D
+        body_coordinates = keypoints.reshape(-1)
+        body_scores = confidence_scores.reshape(-1)
 
-def pose_data_to_json(results_sequence):
-    frames = []
+        return body_coordinates, body_scores
 
-    for frame_idx, pose_samples in enumerate(results_sequence):
-        # pose_samples: list[PoseDataSample] for this frame
-        instances_json = [
-            {
-                "pred_instances": pred_instances_to_jsonable(sample.pred_instances)
-            }
-            for sample in pose_samples
-        ]
-
-        frames.append(
-            {
-                "frame_index": frame_idx,
-                "instances": instances_json,
-            }
-        )
-
-    return {
-        "num_frames": len(frames),
-        "frames": frames,
-    }
+    # No person in frame fail - return 0 length sample, handled by post_coordinates_to_seq()
+    return np.zeros((0,), dtype=np.float32), np.zeros((0,), dtype=np.float32)
 
 
-def extract_left_right_hands(result: HandLandmarkerResult):
+def extract_hands_per_frame(result: HandLandmarkerResult):
     """
     From a single HandLandmarkerResult, return two (21, 3) arrays:
       left_hand, right_hand, each with [x, y, z] per joint.
@@ -205,37 +239,117 @@ def extract_left_right_hands(result: HandLandmarkerResult):
       left_hand:  np.ndarray shape (21, 3)
       right_hand: np.ndarray shape (21, 3)
     """
-    # Default: zeros
     left = np.zeros((21, 3), dtype=np.float32)
     right = np.zeros((21, 3), dtype=np.float32)
 
-    hand_lms = getattr(result, "hand_landmarks", [])
+    hand_landmarks = getattr(result, "hand_landmarks", [])
     handedness = getattr(result, "handedness", [])
 
-    for idx, lm_list in enumerate(hand_lms):
-        # Convert landmarks to (21, 3)
-        arr = np.array([[lm.x, lm.y, lm.z] for lm in lm_list], dtype=np.float32)
-        # Pad or truncate to 21 if weird size
-        if arr.shape[0] < 21:
-            pad = np.zeros((21 - arr.shape[0], 3), dtype=np.float32)
-            arr = np.concatenate([arr, pad], axis=0)
-        elif arr.shape[0] > 21:
-            arr = arr[:21]
+    for idx, landmark_list in enumerate(hand_landmarks):
+        landmark_array = np.array([[landmark.x, landmark.y, landmark.z] for landmark in landmark_list], dtype=np.float32)
 
-        # Determine if this is left or right from handedness
-        hand_label = "unknown"
+        # Pad or truncate to 21 coordinates if size is weird
+        if landmark_array.shape[0] < 21:
+            pad = np.zeros((21 - landmark_array.shape[0], 3), dtype=np.float32)
+            landmark_array = np.concatenate([landmark_array, pad], axis=0)
+        elif landmark_array.shape[0] > 21:
+            landmark_array = landmark_array[:21]
+
+        hand_label = "unknown" # initialize left or right handedness
         if idx < len(handedness) and len(handedness[idx]) > 0:
             hand_label = handedness[idx][0].category_name.lower()
 
         if "left" in hand_label:
-            left = arr
+            left = landmark_array
         elif "right" in hand_label:
-            right = arr
+            right = landmark_array
         else:
-            # If unknown, just put it into whichever is still zero
-            if np.allclose(left, 0):
-                left = arr
+            if np.allclose(left, 0): # if weird handedness, put into empty hand array to avoid zeros
+                left = landmark_array
             else:
-                right = arr
-
+                right = landmark_array
     return left, right
+
+
+def pose_coordinates_to_seq(pose_coordinates_sequence, num_keypoints: int = 17):
+    """
+    Convert pose results into ML-friendly per-frame features:
+
+    results_sequence: list where each element is `pose_samples` for that frame,
+                      and `pose_samples` is a list[PoseDataSample].
+
+    Returns:
+      {
+        "num_frames": T,
+        "frames": [
+          {
+            "frame_index": t,
+            "body_xy":     [K*2 floats],   # flattened (x,y)
+            "body_scores": [K floats]      # per-keypoint confidence
+          },
+          ...
+        ]
+      }
+
+    If we cannot infer any body for a frame, we return zeros of size:
+      body_xy:     [num_keypoints*2]
+      body_scores: [num_keypoints]
+    so shapes are stable for training.
+    """
+    frames = []
+
+    for frame_idx, pose_samples in enumerate(pose_coordinates_sequence):
+        body_coordinates, body_scores = extract_body_by_frame(pose_samples)
+
+        if body_coordinates.size == 0:
+            # we handle no person detected with stable zero arrays
+            body_coordinates = np.zeros((num_keypoints * 2,), dtype=np.float32)
+            body_scores = np.zeros((num_keypoints,), dtype=np.float32)
+
+        frames.append(
+            {
+                "frame_index": frame_idx,
+                "body_coordinates": body_coordinates.tolist(),
+                "body_scores": body_scores.tolist(),
+            }
+        )
+
+    return {"num_frames": len(frames), "frames": frames}
+
+
+def hand_coordinates_to_seq(hand_coordinates_sequence):
+    """
+    Convert a list of HandLandmarkerResult (one per frame) into
+    an ML-friendly JSON structure:
+
+    {
+      "num_frames": T,
+      "frames": [
+        {
+          "frame_index": t,
+          "left_hand":  [[x,y,z] * 21],
+          "right_hand": [[x,y,z] * 21]
+        },
+        ...
+      ]
+    }
+
+    Each hand is always shape [21, 3] (padded with zeros if missing).
+    """
+    frames = []
+    for frame_idx, hand_samples in enumerate(hand_coordinates_sequence):
+        if hand_samples is None:
+            left = np.zeros((21, 3), dtype=np.float32)
+            right = np.zeros((21, 3), dtype=np.float32)
+        else:
+            left, right = extract_hands_per_frame(hand_samples)
+
+        frames.append(
+            {
+                "frame_index": frame_idx,
+                "left_hand": left.tolist(),
+                "right_hand": right.tolist(),
+            }
+        )
+
+    return {"num_frames": len(frames), "frames": frames}
