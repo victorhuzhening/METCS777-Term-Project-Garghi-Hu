@@ -46,16 +46,15 @@ data/pre_trained_data/
 
 # Dataset and Results Overview
 
-Model output with predicted sentence:
+## Model output with predicted sentence:
 
-![alt text](https://github.com/victorhuzhening/METCS777-Term-Project-Garghi-Hu/data/for_display/output1.png)
+![output1.png](data/for_display/output1.png)
 
-![alt text](https://github.com/victorhuzhening/METCS777-Term-Project-Garghi-Hu/data/for_display/output2.png)
+![output2.png](data/for_display/output2.png)
 
-Actual reference sentence:
+## Actual reference sentence:
 
-![alt text](![alt text](https://github.com/victorhuzhening/METCS777-Term-Project-Garghi-Hu/data/for_display/output_label.png))
-
+![output_label.png](data/for_display/output_label.png)
 
 ## Dataset Overview
 
