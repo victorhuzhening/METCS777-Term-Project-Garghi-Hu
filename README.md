@@ -49,5 +49,14 @@ detects Upper-body keypoints (e.g., shoulders, elbows, wrists) and their confide
 ### Model Setup
 Two main Architecture: GRU based Seq-to-Seq Model & Transformer Encoder-decoder
 
+### Example Review
+Input video states: “The next area we’re going to talk about is rhythm.”
+Model output states: “i' m going to be talking about rhythm”
+
+This showcases some key properties for our model such as:
+1. The Model correctly identifies the topic of Rhythm
+2. The output is not a word for word translation of the reference but a paraphrase that preserves the idea
+3. The generated sentence is fluent but somewhat informal and contains minor formatting issues (e.g., "i' m" instead of "I’m").
+
 
 
