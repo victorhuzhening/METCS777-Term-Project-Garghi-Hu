@@ -40,11 +40,12 @@ data/pre_trained_data/
 
 
 ## Dataset Overview
+
 Our Model is trained on a pose-based representation derived from the How2Sign dataset, which provides parallel ASL videos and English sentence-level annotations. Each sample in our dataset consists of:
   An ASL video clip of a signer.
   A corresponding English sentence from the How2Sign TSV files (used as the target text   for translation).
 
-## how we use the videos
+## How We Use The Videos
 
 ### MediaPipe Hands 
 
