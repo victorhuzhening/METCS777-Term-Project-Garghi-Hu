@@ -31,7 +31,11 @@ data/pre_trained_data/
 
 # Model Performance Results
 
+<img width="657" height="266" alt="image" src="https://github.com/user-attachments/assets/d279f7d9-69e8-4f5c-8075-2cadd24fdabe" />
+
+
 # Dataset and Results Overview
+
 
 ## Dataset Overview
 Our Model is trained on a pose-based representation derived from the How2Sign dataset, which provides parallel ASL videos and English sentence-level annotations. Each sample in our dataset consists of:
@@ -39,24 +43,30 @@ Our Model is trained on a pose-based representation derived from the How2Sign da
   A corresponding English sentence from the How2Sign TSV files (used as the target text   for translation).
 
 ## how we use the videos
+
 ### MediaPipe Hands 
+
 Detects Left and right hand landmarks (x, y coordinates and associated confidence scores).
 
 ### MMPose
+
 detects Upper-body keypoints (e.g., shoulders, elbows, wrists) and their confidence scores.
 
 ## Results Explanation
+
 ### Model Setup
+
 Two main Architecture: GRU based Seq-to-Seq Model & Transformer Encoder-decoder
 
 ### Example Review
+
 Input video states: “The next area we’re going to talk about is rhythm.”
 Model output states: “i' m going to be talking about rhythm”
 
 This showcases some key properties for our model such as:
-1. The Model correctly identifies the topic of Rhythm
-2. The output is not a word for word translation of the reference but a paraphrase that preserves the idea
-3. The generated sentence is fluent but somewhat informal and contains minor formatting issues (e.g., "i' m" instead of "I’m").
+  1. The Model correctly identifies the topic of Rhythm
+  2. The output is not a word for word translation of the reference but a paraphrase         that preserves the idea
+  3. The generated sentence is fluent but somewhat informal and contains minor               formatting issues (e.g., "i' m" instead of "I’m").
 
 
 
