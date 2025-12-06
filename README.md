@@ -1,24 +1,33 @@
 # Environment setup
 
-## Required Dependency
-Head into the requirments.txt file and make sure all the dependencies match the verison present there
-** this is IMPORTANT or else the project might run into issues ** 
+## Dependency
+Review the requirements.txt file and ensure that all installed dependencies match the specified versions. This step is critical to prevent compatibility issues or runtime errors.
 
 ## Cloud Environment Setup
 ### S3
-Set up S3 the same way as Lab one and make sure the bucket is unique 
+Configure an S3 bucket as demonstrated in Lab 1. 
+Ensure the bucket name is globally unique to avoid conflicts.
+Create a separate output folder within the S3 bucket to store the generated result files.
 
-##EMR Spark
-Set up Spark the same way as the Labs and make sure its pointing to the train.py file as the first argument, the raw videos as the second argument, and output folder as the third argument.
+### EMR with Apache Spark
+
+Configure Spark as done in previous labs.
+Your Spark job should reference:
+
+train.py as the primary script
+The raw video input directory as the second argument
+The output data folder (S3 or local) as the third argument
 
 # How to run the code
-##Locally
-The raw data is not pushed on the github so the trained data is present in the data/pre_trained_data. To run the code locally all we have to do is be on the anaconda environemt by using this command 
-### conda activate MMPoseGood ** 
-once you're in the anaconda environment and have all the dependency installed, you just run this command to start the code. 
-### python train.py --feature_dir data/pre_train_data --model_type gru --batch_size 8 --epochs 5 **
+## Locally
+The full raw video dataset is not included in the GitHub repository.
+However, precomputed training data is available under:
+data/pre_trained_data/
 
-this will run the code and give you the results of the training and testing. 
+## To execute the model locally:
+1. Activate the correct Anaconda environment:
+2. Ensure dependencies are correctly installed.
+3. Run the training script: python train.py --feature_dir data/pre_train_data --model_type gru --batch_size 8 --epochs 5
 
 # Results of running the code with data
 
