@@ -33,4 +33,21 @@ data/pre_trained_data/
 
 # Dataset and Results Overview
 
+## Dataset Overview
+Our Model is trained on a pose-based representation derived from the How2Sign dataset, which provides parallel ASL videos and English sentence-level annotations. Each sample in our dataset consists of:
+  An ASL video clip of a signer.
+  A corresponding English sentence from the How2Sign TSV files (used as the target text   for translation).
+
+## how we use the videos
+### MediaPipe Hands 
+Detects Left and right hand landmarks (x, y coordinates and associated confidence scores).
+
+### MMPose
+detects Upper-body keypoints (e.g., shoulders, elbows, wrists) and their confidence scores.
+
+## Results Explanation
+### Model Setup
+Two main Architecture: GRU based Seq-to-Seq Model & Transformer Encoder-decoder
+
+
 
