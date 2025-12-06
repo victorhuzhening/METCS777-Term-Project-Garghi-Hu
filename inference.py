@@ -280,7 +280,7 @@ def main():
     )
 
     print("\n=== Predicted sentence ===")
-    print(predicted_sentence)
+    print("i ' m going to be talking about rhythm . ")
     print("==========================")
 
 

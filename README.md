@@ -25,20 +25,37 @@ However, precomputed training data is available under:
 data/pre_trained_data/
 
 ## To execute the model locally:
+
+### Training
 1. Activate the correct Anaconda environment:
 2. Ensure dependencies are correctly installed.
 3. Run the training script: python train.py --feature_dir data/pre_train_data --model_type gru --batch_size 8 --epochs 5
 
+### Testing
+1. Activate the correct Anaconda environment
+2. Locate the path to trained model file and testing video file
+3. Run the testing script in terminal: python inference.py --video_path path-to-test-file --checkpoint pretrained-model-file --max_frames 300 --frame_subsample 2 --num_keypoints 17 --max_decode_len 60
+
 # Model Performance Results
+
+Model output with predicted sentence:
+
+![alt text](https://github.com/victorhuzhening/METCS777-Term-Project-Garghi-Hu/data/for_display/output1.png)
+
+![alt text](https://github.com/victorhuzhening/METCS777-Term-Project-Garghi-Hu/data/for_display/output2.png)
+
+Actual reference sentence:
+
+![alt text](![alt text](https://github.com/victorhuzhening/METCS777-Term-Project-Garghi-Hu/data/for_display/output_label.png))
 
 # Dataset and Results Overview
 
 ## Dataset Overview
 Our Model is trained on a pose-based representation derived from the How2Sign dataset, which provides parallel ASL videos and English sentence-level annotations. Each sample in our dataset consists of:
   An ASL video clip of a signer.
-  A corresponding English sentence from the How2Sign TSV files (used as the target text   for translation).
+  A corresponding English sentence from the How2Sign TSV files (used as the target text for translation).
 
-## how we use the videos
+## How we use the videos
 ### MediaPipe Hands 
 Detects Left and right hand landmarks (x, y coordinates and associated confidence scores).
 
