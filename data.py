@@ -116,22 +116,6 @@ class ASLData(Dataset):
     def __len__(self):
         return len(self.video_paths)
 
-    def _iter_video_as_frames(self, path):
-        cap = cv2.VideoCapture(path)
-        if not cap.isOpened():
-            raise IOError("ERROR: Cannot open video file")
-
-        try:
-            while True:
-                ok, frame = cap.read()
-                if not ok:
-                    break
-
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert cv frame (BGR) to RGB
-                yield frame_rgb
-        finally:
-            cap.release()
-
     def extract_coordinate_sequences(self, video_path):
         """
         Run Hand Landmarker and MMPose models over all frames and get raw sequences.
@@ -144,7 +128,7 @@ class ASLData(Dataset):
         hand_results = []
         body_results = []
 
-        for frame_rgb in self._iter_video_as_frames(video_path):
+        for frame_rgb in iter_video_as_frames(video_path):
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB,
                                 data=frame_rgb)
             hand_coordinates = self.MP_model.detect(mp_image)

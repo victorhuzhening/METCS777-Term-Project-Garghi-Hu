@@ -355,3 +355,20 @@ def rouge1_f1(pred_tokens, label_tokens):
         return 0.0
 
     return 2 * precision * recall / (precision + recall)
+
+
+def iter_video_as_frames(path):
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise IOError("ERROR: Cannot open video file")
+
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert cv frame (BGR) to RGB
+            yield frame_rgb
+    finally:
+        cap.release()
