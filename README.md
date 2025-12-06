@@ -29,8 +29,8 @@ data/pre_trained_data/
 2. Ensure dependencies are correctly installed.
 3. Run the training script: python train.py --feature_dir data/pre_train_data --model_type gru --batch_size 8 --epochs 5
 
-# Results of running the code with data
+# Model Performance Results
 
-# Detailed explaination of the dataset and results
+# Dataset and Results Overview
 
 
