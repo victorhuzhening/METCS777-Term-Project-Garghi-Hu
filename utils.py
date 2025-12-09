@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-import json
+import torch
 from mediapipe import solutions
 from mediapipe.tasks.python.vision.hand_landmarker import HandLandmarkerResult
 from mediapipe.framework.formats import landmark_pb2
@@ -111,10 +111,10 @@ def extract_body_by_frame(pose_data_samples):
     From a list[PoseDataSample] for a single frame, extract a single
     person's body pose as:
 
-      body_xy:     (K*2,) flattened [x0,y0,x1,y1,...]
-      body_scores: (K,)  keypoint confidences
+      body_xy:     (K, 2) xy coordinates
+      body_scores: (K)  keypoint confidences
 
-    If nothing is detected, returns zeros of size (K*2,) and (K,).
+    If nothing is detected, returns zeros of size (K,2) and (K).
     We infer K from the first non-empty sample.
     """
     # Get first sample with keypoints - assumes only one person in frame
@@ -126,18 +126,24 @@ def extract_body_by_frame(pose_data_samples):
         if instances is None or keypoints is None or confidence_scores is None:
             continue
 
-        keypoints = keypoints[0].numpy().astype(np.float32)  # convert shape from [num_instances, K, 2] to [K, 2]
-        confidence_scores = confidence_scores[0].numpy().astype(
-            np.float32)  # convert shape from [num_instances, K] to [K]
+        body_coordinates = keypoints[0]
+        body_scores = confidence_scores[0]
 
-        # flatten to 1D
-        body_coordinates = keypoints.reshape(-1)
-        body_scores = confidence_scores.reshape(-1)
+        if isinstance(body_coordinates, np.ndarray):
+            body_coordinates = torch.from_numpy(body_coordinates.astype(np.float32))
+        else:
+            body_coordinates = body_coordinates.to(dtype=torch.float32)
+
+        if isinstance(confidence_scores, np.ndarray):
+            # flatten scores to 1D
+            body_scores = torch.from_numpy(body_scores.astype(np.float32)).reshape(-1)
+        else:
+            body_scores = body_scores.to(dtype=torch.float32).reshape(-1)
 
         return body_coordinates, body_scores
 
     # No person in frame fail - return 0 length sample, handled by post_coordinates_to_seq()
-    return np.zeros((0,), dtype=np.float32), np.zeros((0,), dtype=np.float32)
+    return torch.zeros((0, 2), dtype=torch.float32), torch.zeros((0,), dtype=torch.float32)
 
 
 def extract_hands_per_frame(result: HandLandmarkerResult):
@@ -150,19 +156,21 @@ def extract_hands_per_frame(result: HandLandmarkerResult):
       left_hand:  np.ndarray shape (21, 3)
       right_hand: np.ndarray shape (21, 3)
     """
-    left = np.zeros((21, 3), dtype=np.float32)
-    right = np.zeros((21, 3), dtype=np.float32)
+    left = torch.zeros((21, 3), dtype=torch.float32)
+    right = torch.zeros((21, 3), dtype=torch.float32)
 
     hand_landmarks = getattr(result, "hand_landmarks", [])
     handedness = getattr(result, "handedness", [])
 
     for idx, landmark_list in enumerate(hand_landmarks):
-        landmark_array = np.array([[landmark.x, landmark.y, landmark.z] for landmark in landmark_list], dtype=np.float32)
-
+        landmark_array = torch.tensor(
+            [[landmark.x, landmark.y, landmark.z] for landmark in landmark_list],
+            dtype=torch.float32
+        )
         # Pad or truncate to 21 coordinates if size is weird
         if landmark_array.shape[0] < 21:
-            pad = np.zeros((21 - landmark_array.shape[0], 3), dtype=np.float32)
-            landmark_array = np.concatenate([landmark_array, pad], axis=0)
+            pad = torch.zeros((21 - landmark_array.shape[0], 3), dtype=torch.float32)
+            landmark_array = torch.cat([landmark_array, pad], dim=0)
         elif landmark_array.shape[0] > 21:
             landmark_array = landmark_array[:21]
 
@@ -175,7 +183,7 @@ def extract_hands_per_frame(result: HandLandmarkerResult):
         elif "right" in hand_label:
             right = landmark_array
         else:
-            if np.allclose(left, 0): # if weird handedness, put into empty hand array to avoid zeros
+            if torch.allclose(left, torch.zeros_like(left)): # if weird handedness we place into left
                 left = landmark_array
             else:
                 right = landmark_array
@@ -195,33 +203,28 @@ def pose_coordinates_to_seq(pose_coordinates_sequence, num_keypoints: int = 17):
         "frames": [
           {
             "frame_index": t,
-            "body_xy":     [K*2 floats],   # flattened (x,y)
-            "body_scores": [K floats]      # per-keypoint confidence
+            "body_coordinates": torch.FloatTensor [K, 2],
+            "body_scores":      torch.FloatTensor [K]
           },
           ...
         ]
       }
-
-    If we cannot infer any body for a frame, we return zeros of size:
-      body_xy:     [num_keypoints*2]
-      body_scores: [num_keypoints]
-    so shapes are stable for training.
     """
     frames = []
 
     for frame_idx, pose_samples in enumerate(pose_coordinates_sequence):
         body_coordinates, body_scores = extract_body_by_frame(pose_samples)
 
-        if body_coordinates.size == 0:
+        if body_coordinates.numel() == 0:
             # we handle no person detected with stable zero arrays
-            body_coordinates = np.zeros((num_keypoints * 2,), dtype=np.float32)
-            body_scores = np.zeros((num_keypoints,), dtype=np.float32)
+            body_coordinates = torch.zeros((num_keypoints, 2), dtype=torch.float32)
+            body_scores = torch.zeros((num_keypoints,), dtype=torch.float32)
 
         frames.append(
             {
                 "frame_index": frame_idx,
-                "body_coordinates": body_coordinates.tolist(),
-                "body_scores": body_scores.tolist(),
+                "body_coordinates": body_coordinates.tolist(),   # [K,2]
+                "body_scores": body_scores.tolist(),             # [K]
             }
         )
 
@@ -250,8 +253,8 @@ def hand_coordinates_to_seq(hand_coordinates_sequence):
     frames = []
     for frame_idx, hand_samples in enumerate(hand_coordinates_sequence):
         if hand_samples is None:
-            left = np.zeros((21, 3), dtype=np.float32)
-            right = np.zeros((21, 3), dtype=np.float32)
+            left = torch.zeros((21, 3), dtype=torch.float32)
+            right = torch.zeros((21, 3), dtype=torch.float32)
         else:
             left, right = extract_hands_per_frame(hand_samples)
 

@@ -8,6 +8,7 @@ import mediapipe as mp
 from torch.utils.data import Dataset
 from utils import *
 from tokenizer import *
+from transforms import *
 
 
 class CameraCfg:
@@ -98,7 +99,6 @@ class ASLData(Dataset):
 
         # ----- vocab + tokenizer -----
         if vocab is None:
-            # build vocab from all labels in the TSV
             sentences = self.sentence_labels.values()
             self.vocab = build_vocab_from_sentences(sentences, min_freq=min_frequency)
         else:
@@ -160,32 +160,58 @@ class ASLData(Dataset):
         if self.max_frames:
             frame_indices = frame_indices[: self.max_frames]
 
+        # Temporal transformations
+        frame_indices = temporal_jitter_and_shuffle(
+            frame_indices,
+            num_frames=frame_dim,
+            max_jitter=1,
+            jitter_prob=0.2,
+            shuffle_prob=0.15,
+        )
+
         feature_seq = []
 
         for idx in frame_indices:
             hand_frame = frames_hand[idx]
             body_frame = frames_body[idx]
 
-            left_hand = np.array(hand_frame["left_hand"], dtype=np.float32)  # [21, 3]
-            right_hand = np.array(hand_frame["right_hand"], dtype=np.float32)
+            left_hand = hand_frame["left_hand"]    # [21,3]
+            right_hand = hand_frame["right_hand"]  # [21,3]
 
-            left_hand = left_hand.reshape(-1) # flatten to 1D
+            # Edge case safety check because transforms require torch tensors
+            if not isinstance(left_hand, torch.Tensor):
+                left_hand = torch.tensor(left_hand, dtype=torch.float32)
+            if not isinstance(right_hand, torch.Tensor):
+                right_hand = torch.tensor(right_hand, dtype=torch.float32)
+
+            # Spatial transforms (require torch tensors)
+            left_hand = random_affine_transforms(left_hand)
+            right_hand = random_affine_transforms(right_hand)
+
+            left_hand = left_hand.reshape(-1) # flatten to 1D [21*3]
             right_hand = right_hand.reshape(-1)
 
-            body_coordinates = np.array(body_frame["body_coordinates"], dtype=np.float32)  # [2K]
-            body_scores = np.array(body_frame["body_scores"], dtype=np.float32)  # [K]
+            body_coordinates = body_frame["body_coordinates"]  # [K,2]
+            body_scores = body_frame["body_scores"]            # [K]
 
-            feature_vector = np.concatenate([
-                left_hand, right_hand, body_coordinates, body_scores],
-                axis=0
+            if not isinstance(body_coordinates, torch.Tensor):
+                body_coordinates = torch.tensor(body_coordinates, dtype=torch.float32)
+            if not isinstance(body_scores, torch.Tensor):
+                body_scores = torch.tensor(body_scores, dtype=torch.float32)
+
+            body_coordinates = random_affine_transforms(body_coordinates)
+            body_coordinates = body_coordinates.reshape(-1)    # flatten to 1D [2K]
+
+            feature_vector = torch.concat((
+                left_hand, right_hand, body_coordinates, body_scores),
+                dim=0
             )
             feature_seq.append(feature_vector)
 
         if not feature_seq:
             raise RuntimeError("No features extracted while building feature tensor.")
 
-        feature_seq_stack = np.stack(feature_seq, axis=0)
-        feature_seq_tensor = torch.from_numpy(feature_seq_stack).float()
+        feature_seq_tensor = torch.stack(feature_seq, dim=0).float()  # [T', D]
         return feature_seq_tensor
 
     def __getitem__(self, idx):
