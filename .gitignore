@@ -2,6 +2,8 @@
 data/raw_videos
 data/how2sign_realigned_train.csv
 data/raw_videos_test
+data/precomputed_train
+data/pretrained_model
 __pycache__/
 .idea/
 output.mp4
