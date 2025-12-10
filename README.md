@@ -1,3 +1,27 @@
+# Abstract
+
+Sign Vision is a set of machine learning models that will extract posture information and hand coordinates from videos of American Sign Language (ASL) to translate them into complete English sentences. SignVision will use a combination of Google MediaPipe Hand Landmarking model and CMU Open Pose model. The overall purpose of this project is to translate ASL into English for people who don’t understand sign language.
+
+# Project Overview
+
+## By: Zhening Hu & Vamsi Garghi
+
+## Project Purpose
+The overall purpose of this project is to translate ASL into English for people who don’t understand sign language.
+
+## Motivation
+
+1. To break the communication barrier.
+2. explore the ASL language to its full extent
+3. Better interactivity between deaf and hard of hearing people to communicate more independently.
+ 
+## Methods
+
+  - How2Sign dataset (34gb) is taken and a training model is run to get features for      the training model.
+  - Features are extracted from the dataset such as left & right hand cordinates,         Torso & Limb cordinates and tokenized labels.
+     - These features are used to created the training dataset (.pt file) and           created the vocab meta file for english translations.
+  - The training dataset is then used in our model to encode and decode the AI model.
+
 # Repo Structure
 
 ```bash
