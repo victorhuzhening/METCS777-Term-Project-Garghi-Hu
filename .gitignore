@@ -5,3 +5,4 @@ data/raw_videos_test
 __pycache__/
 .idea/
 output.mp4
+.idea/
