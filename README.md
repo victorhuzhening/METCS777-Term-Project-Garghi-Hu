@@ -1,3 +1,35 @@
+# Repo structure
+
+boston-crime-weather/
+│
+├── .idea/
+│   ├── crime.csv
+│   ├── boston-weather.csv
+│   └── Boston_Neighbourhoods.geoson
+│
+├── code/
+│   └── Crime_and_Weather_Analysis.ipynb
+│
+├── data/
+│   ├── english_csv
+│       └── how2sign_realigned_train.csv 
+│   ├── precomputed_train
+│       └── how2sign_realigned_train.csv 
+│   ├── pretrained_model
+│       └── checkpoint
+│          └── rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.pth
+│       └── mmpose_config
+│          └── __init__.py
+│          └── default_runtime.py
+│          └── rtmpose_m_8xb256-420e_coco-256x192.py
+│       └── hand_landmarker.task
+├── output/
+│   ├── {output}.png
+├── .gitignore
+├── README.md
+├── requirements.txt
+
+
 # Environment setup
 
 ## Dependency
@@ -48,11 +80,11 @@ data/pre_trained_data/
 
 ## Model output with predicted sentence:
 
-![Raw sentence Label](output/Raw_sentence.png)
+![Predicted sentence Label](output/model_predicted_sentence.png)
 
 ## Actual reference sentence:
 
-![Predicted sentence Label](output/model_predicted_sentence.png)
+![Raw sentence Label](output/Raw_sentence.png)
 
 ## Dataset Overview
 
@@ -85,3 +117,4 @@ This showcases some key properties for our model such as:
   1. The Model correctly identifies the topic of Rhythm
   2. The output is not a word for word translation of the reference but a paraphrase         that preserves the idea
   3. The generated sentence is fluent but somewhat informal and contains minor               formatting issues (e.g., "i' m" instead of "I’m").
+
