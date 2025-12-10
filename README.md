@@ -1,9 +1,7 @@
 # Repo structure
 
 ```bash
-tree -L 3
-```
-boston-crime-weather/
+METCS777-Term-Project-Team6/
 │
 ├── .idea/
 │   ├── crime.csv
@@ -31,6 +29,7 @@ boston-crime-weather/
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
+```
 
 
 # Environment setup
