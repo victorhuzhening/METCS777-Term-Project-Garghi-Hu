@@ -1,5 +1,8 @@
 # Repo structure
 
+```bash
+tree -L 3
+```
 boston-crime-weather/
 │
 ├── .idea/
