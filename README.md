@@ -1,21 +1,38 @@
-# Repo structure
+# Repo Structure
 
 ```bash
 METCS777-Term-Project-Team6/
 │
 ├── .idea/
-│   ├── crime.csv
-│   ├── boston-weather.csv
-│   └── Boston_Neighbourhoods.geoson
+│   ├── inspectionProfiles
+│   ├── .gitignore
+│   └── METCS777-Term-Project.iml
+│   └── misc.xml
+│   └── modules.xml
+│   └── vcs.xml
 │
 ├── code/
-│   └── Crime_and_Weather_Analysis.ipynb
-│
+│   └── __pycache__
+│   └── init.py
+│   └── compare.py
+│   └── data.py
+│   └── inference.py
+│   └── lab.ipynb
+│   └── landmarker_demo.py
+│   └── model.py
+│   └── pretrained_model.py
+│   └── tokenizer.py
+│   └── train.py
+│   └── transforms.py
+│   └── utils.py
 ├── data/
 │   ├── english_csv
 │       └── how2sign_realigned_train.csv 
 │   ├── precomputed_train
-│       └── how2sign_realigned_train.csv 
+│       └── sample_00000.pt
+│       └── ....
+│       └── sample_01002.pt
+│       └── vocab_meta.pt
 │   ├── pretrained_model
 │       └── checkpoint
 │          └── rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.pth
@@ -29,6 +46,7 @@ METCS777-Term-Project-Team6/
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
+
 ```
 
 
