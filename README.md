@@ -48,11 +48,11 @@ data/pre_trained_data/
 
 ## Model output with predicted sentence:
 
-![Raw sentence Label](image.png)
+![Raw sentence Label](output/Raw_sentence.png.png)
 
 ## Actual reference sentence:
 
-![Predicted sentence Label](image-1.png)
+![Predicted sentence Label](output/model_predicted_sentence.png)
 
 ## Dataset Overview
 
