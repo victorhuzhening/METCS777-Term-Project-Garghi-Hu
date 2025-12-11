@@ -7,9 +7,9 @@ Sign Vision is a set of machine learning models that will extract posture inform
 - By: Zhening Hu & Vamsi Garghi
 - Project Purpose: The overall purpose of this project is to translate ASL into English for people who don’t understand sign language.
 - Motivation: 
-  - To break the communication barrier.
-  - explore the ASL language to its full extent
-  - Better interactivity between deaf and hard of hearing people to communicate more      independently.
+  - To break the communication barrier between as many people as possible. 
+  - Explore the ASL language to its full extent.
+  - Better interactivity between deaf and hard of hearing people to communicate more independently.
  - Methods
    - How2Sign dataset (34gb) is taken and a training model is run to get features for the training model.
    - Features are extracted from the dataset such as left & right hand cordinates,         Torso & Limb cordinates and tokenized labels.
@@ -98,6 +98,7 @@ Recall-Oriented Understudy for Gisting Evaluation (ROUGE 1): 0.778
 
 
 # Repo Structure
+
 ```bash
 METCS777-Term-Project-Team6/
 │
@@ -150,55 +151,50 @@ METCS777-Term-Project-Team6/
 
 # Installation & Environment Setup
 
-## Clone the Repo
-``` git clone SSH
-cd folder
-```
-
-## 
-
-## Dependency
-
-Review the requirements.txt file and ensure that all installed dependencies match the specified versions. This step is critical to prevent compatibility issues or runtime errors.
-
 ## Cloud Environment Setup
 
 ### S3
-Configure an S3 bucket as demonstrated in Lab 1. 
-Ensure the bucket name is globally unique to avoid conflicts.
-Create a separate output folder within the S3 bucket to store the generated result files.
+
+- Configure an S3 bucket as demonstrated in Lab 1. 
+- Ensure the bucket name is globally unique to avoid conflicts.
+- Create a separate output folder within the S3 bucket to store the training files.
 
 ### EMR with Apache Spark
 
 Configure Spark as done in previous labs.
-
-Your Spark job should reference:
-- train.py as the primary script. 
-- The raw video input directory as the second argument.
-- The output data folder for the training data to land.
-
-
-## How to run the code
-
-### Locally
-The full raw video dataset is not included in the GitHub repository.
-However, precomputed training data is available under:
-data/pre_trained_data/
+Your Spark job should have the below arguments:
+1. raw dataset
+2. file 1 for features
+3. file 2 for tokenization
+4. file 3 for vocab
+5. output folder argument for training dataset
 
 
-### Training
+# How to run the code
 
-1. Activate the correct Anaconda environment
-2. Ensure dependencies are correctly installed.
-3. Run the training script:
-   
-``` bash 
-python train.py --feature_dir data/pre_train_data --model_type gru --batch_size 8 --epochs 5
+## Clone the Repo
+
+``` 
+git clone https://github.com/victorhuzhening/METCS777-Term-Project-Garghi-Hu.git
+cd METCS777-Term-Project-Garghi-Hu
+```
+## Install Dependency
+
+Review the requirements.txt file and ensure that all installed dependencies match the specified versions. This step is critical to prevent compatibility issues or runtime errors.
+
+
+## Create a virtual Conda environemnt
+
+
+```
+conda create -n MMPoseGood python=3.10 -y
+conda activate MMPoseGood
 ```
 
-### Testing
+## Run the file
 
-1. Activate the correct Anaconda environment
-2. Locate the path to trained model file and testing video file
-3. Run the testing script in terminal: python inference.py --video_path path-to-test-file --checkpoint pretrained-model-file --max_frames 300 --frame_subsample 2 --num_keypoints 17 --max_decode_len 60
+```
+past the file here with the run code
+```
+
 
