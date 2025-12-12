@@ -12,8 +12,8 @@ Sign Vision is a set of machine learning models that will extract posture inform
   - Better interactivity between deaf and hard of hearing people to communicate more independently.
  - Methods
    - How2Sign dataset (34gb) is taken and a training model is run to get features for the training model.
-   - Features are extracted from the dataset such as left & right hand cordinates,         Torso & Limb cordinates and tokenized labels.
-   - These features are used to created the training dataset (.pt file) and           created the vocab meta file for english translations.
+   - Features are extracted from the dataset such as left & right hand cordinates, Torso & Limb cordinates and tokenized labels.
+   - These features are used to created the training dataset (.pt file) and created the vocab meta file for english translations.
    - The training dataset is then used to create sequence modeling
    - Using the sequence modeling we will output english text based on video and its information. 
 
