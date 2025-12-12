@@ -137,7 +137,7 @@ METCS777-Term-Project-Team6/
 │          └── default_runtime.py
 │          └── rtmpose_m_8xb256-420e_coco-256x192.py
 │       └── hand_landmarker.task
-|    └── best_encoder_decoder_model.pt
+│   └── best_encoder_decoder_model.pt
 ├── output/
 │   ├── {output}.png
 ├── .gitignore
