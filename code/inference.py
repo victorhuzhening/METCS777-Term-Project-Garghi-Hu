@@ -1,288 +1,232 @@
-import argparse
+import os
+import torch
+import mediapipe as mp
 
-from model import *
-from utils import *
+from model import EncoderDecoderModel
+from data import *
 from pretrained_models import *
 
 
-def extract_coordinate_sequences(
+def load_vocab_and_special_ids(data_dir: str):
+    """
+    Load vocab + pad/bos/eos IDs from vocab_meta.pt.
+    """
+    vocab_meta_path = os.path.join(data_dir, "vocab_meta.pt")
+    vocab_meta = torch.load(vocab_meta_path, map_location="cpu")
+
+    vocab = vocab_meta["vocab"]
+    pad_id = vocab_meta["pad_id"]
+
+    # Edge case: Infer BOS/EOS if not explicit
+    bos_id = vocab_meta.get("bos_id", vocab.get("<bos>"))
+    eos_id = vocab_meta.get("eos_id", vocab.get("<eos>"))
+
+    if bos_id is None or eos_id is None:
+        raise ValueError(
+            "Could not find <bos> or <eos> IDs in vocab_meta.pt."
+        )
+
+    id_to_token = {idx: tok for tok, idx in vocab.items()}
+    return vocab, id_to_token, pad_id, bos_id, eos_id
+
+
+def decode_ids_to_text(
+    token_ids: torch.Tensor,
+    id_to_token,
+    bos_id: int,
+    eos_id: int,
+    pad_id: int,
+) -> str:
+    """
+    Convert a 1D tensor of token IDs into a string using id_to_token.
+    Skips BOS, PAD, and stops at EOS.
+    """
+    if isinstance(token_ids, torch.Tensor):
+        token_ids = token_ids.tolist()
+
+    tokens = []
+    for tid in token_ids:
+        if tid == bos_id:
+            # skip BOS in final text
+            continue
+        if tid == eos_id or tid == pad_id:
+            break
+        token = id_to_token.get(tid, "<unk>")
+        tokens.append(token)
+
+    return " ".join(tokens)
+
+
+@torch.no_grad()
+def run_single_greedy_decode(
+    model: EncoderDecoderModel,
+    features: torch.Tensor,     # [1, T, D_in]
+    feature_len: torch.Tensor,  # [1]
+    id_to_token,
+    bos_id: int,
+    eos_id: int,
+    pad_id: int,
+    max_len: int = None,
+) -> str:
+    """
+    Greedy decode helper. See model.py
+    """
+    model.eval()
+
+    generated_ids = model.greedy_decode(
+        pose_feats=features,
+        pose_len=feature_len,
+        max_len=max_len,
+    )
+
+    sentence = decode_ids_to_text(
+        generated_ids,
+        id_to_token=id_to_token,
+        bos_id=bos_id,
+        eos_id=eos_id,
+        pad_id=pad_id,
+    )
+    return sentence
+
+
+
+def build_features_for_video(
     video_path: str,
     MP_model,
     body_cfg,
     body_model,
-    num_keypoints: int = 17,
-):
-    hand_results = []
-    body_results = []
-
-    for frame_rgb in iter_video_as_frames(video_path):
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
-
-        hand_coordinates = MP_model.detect(mp_image)
-        pose_coordinates = body_cfg.topdown_infer(body_model, frame_rgb)
-
-        hand_results.append(hand_coordinates)
-        body_results.append(pose_coordinates)
-
-    hand_seq = hand_coordinates_to_seq(hand_results)
-    body_seq = pose_coordinates_to_seq(body_results, num_keypoints=num_keypoints)
-    return hand_seq, body_seq
-
-def build_feature_tensor(
-    hand_seq: dict,
-    body_seq: dict,
-    max_frames: int = None,
     frame_subsample: int = 1,
+    max_frames: int | None = None,
     num_keypoints: int = 17,
-) -> torch.Tensor:
-    hand_frame_dim = hand_seq.get("num_frames", len(hand_seq.get("frames", [])))
-    body_frame_dim = body_seq.get("num_frames", len(body_seq.get("frames", [])))
-    frame_dim = min(hand_frame_dim, body_frame_dim)
-
-    if frame_dim == 0:
-        raise RuntimeError("Video produced 0 frames while building feature tensor.")
-
-    frames_hand = hand_seq["frames"]
-    frames_body = body_seq["frames"]
-
-    frame_subsample = max(1, int(frame_subsample))
-    frame_indices = list(range(0, frame_dim, frame_subsample))
-    if max_frames is not None and max_frames > 0:
-        frame_indices = frame_indices[: max_frames]
-
-    feature_seq = []
-
-    for idx in frame_indices:
-        hand_frame = frames_hand[idx]
-        body_frame = frames_body[idx]
-
-        left_hand = np.array(hand_frame["left_hand"], dtype=np.float32)
-        right_hand = np.array(hand_frame["right_hand"], dtype=np.float32)
-
-        left_hand = left_hand.reshape(-1)
-        right_hand = right_hand.reshape(-1)
-
-        body_coordinates = np.array(body_frame["body_coordinates"], dtype=np.float32)
-        body_scores = np.array(body_frame["body_scores"], dtype=np.float32)
-
-        feature_vector = np.concatenate(
-            [left_hand, right_hand, body_coordinates, body_scores],
-            axis=0,
-        )
-        feature_seq.append(feature_vector)
-
-    if not feature_seq:
-        raise RuntimeError("No features extracted while building feature tensor.")
-
-    feature_seq_stack = np.stack(feature_seq, axis=0)  # [T', D]
-    feature_seq_tensor = torch.from_numpy(feature_seq_stack).float()
-    return feature_seq_tensor
-
-
-
-
-@torch.no_grad()
-def greedy_decode(
-    model: PoseToTextModel,
-    feature: torch.Tensor,       # [1, T, D]
-    feature_len: torch.Tensor,   # [1]
-    bos_id: int,
-    eos_id: int,
-    pad_id: int,
-    id_to_token: dict,
-    max_len: int = 100,
-) -> str:
+) -> tuple[torch.Tensor, int]:
     """
-    Greedy decoding for a single sample.
+    Feature extraction from raw video, further details see data.py.
     """
-    device = feature.device
-    model.eval()
-
-    # Encode pose sequence
-    h_n = model.encode(feature, feature_len)
-    num_layers_times_dir, B, H = h_n.shape
-    assert B == 1, "Expected batch size 1 for greedy decoding."
-
-    # Use last layer
-    h_n_last = h_n[-2:]  # [2, 1, H]
-    h = torch.cat([h_n_last[0], h_n_last[1]], dim=-1).unsqueeze(0)  # [1, 1, 2H]
-
-    # Start with <bos>
-    cur_token = torch.tensor([[bos_id]], device=device, dtype=torch.long)  # [1, 1]
-
-    decoded_ids = []
-
-    for _ in range(max_len):
-        emb = model.emb(cur_token)
-        dec_out, h = model.decoder(emb, h)
-        logits = model.out(dec_out[:, -1, :])
-        next_token = torch.argmax(logits, dim=-1)
-
-        token_id = int(next_token.item())
-        if token_id == eos_id:
-            break
-
-        decoded_ids.append(token_id)
-        cur_token = next_token.view(1, 1)
-
-    # Convert token ids → text using existing helper
-    text = tokens_to_text(
-        decoded_ids,
-        id_to_token=id_to_token,
-        pad_id=pad_id,
-        bos_token="<bos>",
-        eos_token="<eos>",
-    )
-    return text
-
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Run PoseToTextModel inference on a single ASL video."
-    )
-    parser.add_argument(
-        "--video_path",
-        type=str,
-        required=True,
-        help="Path to the video file to transcribe.",
-    )
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default="best_model_val.pt",
-        help="Path to trained checkpoint (saved by train.py).",
+    hand_seq, body_seq = extract_coordinate_sequences_for_video(
+        video_path=video_path,
+        MP_model=MP_model,
+        body_cfg=body_cfg,
+        body_model=body_model,
+        num_keypoints=num_keypoints,
     )
 
-    # Pose processing params (should match what you used during precomputation)
-    parser.add_argument(
-        "--max_frames",
-        type=int,
-        default=300,
-        help="Max frames per video after subsampling.",
+    feature_tensor = build_feature_tensor_from_sequences(
+        hand_seq=hand_seq,
+        body_seq=body_seq,
+        frame_subsample=frame_subsample,
+        max_frames=max_frames,
     )
-    parser.add_argument(
-        "--frame_subsample",
-        type=int,
-        default=2,
-        help="Use every N-th frame from the video.",
-    )
-    parser.add_argument(
-        "--num_keypoints",
-        type=int,
-        default=17,
-        help="Number of body keypoints used in pose_coordinates_to_seq.",
-    )
-    parser.add_argument(
-        "--max_decode_len",
-        type=int,
-        default=60,
-        help="Maximum number of tokens to decode.",
-    )
+    feature_len = feature_tensor.size(0)
 
-    return parser.parse_args()
+    return feature_tensor, feature_len
+
 
 
 def main():
-    args = parse_args()
+    """
+    Run this file from main or using terminal to translate a single ASL video into English sentence.
+    Manually configure code to point to your video file/checkpoint/pretrained models
+    TODO: Convert to argparse factory function
+    """
+    CODE_DIR = os.getcwd()
+    BASE_DIR = os.path.dirname(CODE_DIR)
 
-    if not os.path.isfile(args.video_path):
-        raise FileNotFoundError(f"Video not found: {args.video_path}")
-    if not os.path.isfile(args.checkpoint):
-        raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
+    CKPT_PATH = "../data/best_encoder_decoder_model.pt"
+
+    # Path to raw video you want to translate
+    INPUT_PATH = "C:/Users/victo/Documents/CS777/Temp Data Storage/raw_videos/-70D86eMmIc_3-5-rgb_front.mp4"
+
+    # Directory with vocab_meta.pt
+    PRECOMP_DIR = os.path.join(BASE_DIR, "data", "precomputed_train")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Using device:", device)
 
-    ckpt = torch.load(args.checkpoint, map_location=device)
-
-    if "model_state_dict" not in ckpt:
-        raise ValueError(
-            "Checkpoint does not contain 'model_state_dict'. "
-            "Make sure you pass the file saved by train.py."
-        )
-
+    # load checkpoint
+    ckpt = torch.load(CKPT_PATH, map_location=device)
     state_dict = ckpt["model_state_dict"]
-    vocab = ckpt["vocab"]
-    pad_id = ckpt["pad_id"]
     train_args = ckpt.get("args", {})
 
-    id_to_token = build_id_to_token(vocab)
+    # load vocab
+    vocab, id_to_token, pad_id, bos_id, eos_id = load_vocab_and_special_ids(PRECOMP_DIR)
     vocab_size = len(vocab)
 
-    bos_id = vocab["<bos>"]
-    eos_id = vocab["<eos>"]
-
-    enc_hidden = train_args.get("enc_hidden", 256)
-    emb_dim = train_args.get("emb_dim", 256)
-
-    MediaPipeCFG = MediaPipeCfg("pretrained_model/hand_landmarker.task")
+    # initialize pose extraction models
+    MediaPipeCFG = MediaPipeCfg("../data/pretrained_model/hand_landmarker.task")
     options = MediaPipeCFG.create_options()
     MP_model = MediaPipeCFG.HandLandmarker.create_from_options(options)
 
-    MMPoseCFG = MMPoseCfg(
-        checkpoint_path=(
-            "pretrained_model/checkpoint/"
-            "rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.pth"
-        ),
-        config_path=(
-            "pretrained_model/mmpose_config/"
-            "rtmpose_m_8xb256-420e_coco-256x192.py"
-        ),
-    )
-    body_model = MMPoseCFG.create_model()
+    body_cfg = MMPoseCfg(
+        checkpoint_path='../data/pretrained_model/checkpoint/rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.pth',
+        config_path='../data/pretrained_model/mmpose_config/rtmpose_m_8xb256-420e_coco-256x192.py')
+    body_model = body_cfg.create_model()
 
-    print("Running pose extraction on video...")
-    hand_seq, body_seq = extract_coordinate_sequences(
-        args.video_path,
+    # Safely pull params from training args
+    frame_subsample = int(train_args.get("frame_subsample", 1))
+    num_keypoints = int(train_args.get("num_keypoints", 17))
+    max_frames = train_args.get("max_frames", None)
+    if max_frames is not None:
+        max_frames = int(max_frames)
+
+    print(f"Extracting pose features from video: {INPUT_PATH}")
+    feature_tensor, feature_len = build_features_for_video(
+        video_path=INPUT_PATH,
         MP_model=MP_model,
-        body_cfg=MMPoseCFG,
+        body_cfg=body_cfg,
         body_model=body_model,
-        num_keypoints=args.num_keypoints,
+        frame_subsample=frame_subsample,
+        max_frames=max_frames,
+        num_keypoints=num_keypoints,
     )
 
-    feature_tensor = build_feature_tensor(
-        hand_seq,
-        body_seq,
-        max_frames=args.max_frames,
-        frame_subsample=args.frame_subsample,
-        num_keypoints=args.num_keypoints,
-    )
+    T, D = feature_tensor.shape
 
-    T_prime, D = feature_tensor.shape
-    print(f"Extracted features shape: [T={T_prime}, D={D}]")
+    # Build encoder-decoder model
+    d_model = train_args.get("d_model", 768)
+    num_encoder_layers = train_args.get("num_encoder_layers", 6)
+    num_decoder_layers = train_args.get("num_decoder_layers", 6)
+    nhead = train_args.get("nhead", 8)
+    dim_feedforward = train_args.get("dim_feedforward", 2048)
+    dropout = train_args.get("dropout", 0.1)
+    max_tgt_len = train_args.get("max_tgt_len", 128)
 
-    feature_batch = feature_tensor.unsqueeze(0).to(device)
-    feature_len = torch.tensor([T_prime], dtype=torch.long, device=device)
-
-    model = PoseToTextModel(
+    model = EncoderDecoderModel(
         feature_dim=D,
-        enc_hidden=enc_hidden,
         vocab_size=vocab_size,
-        emb_dim=emb_dim,
+        d_model=d_model,
+        num_encoder_layers=num_encoder_layers,
+        num_decoder_layers=num_decoder_layers,
+        nhead=nhead,
+        dim_feedforward=dim_feedforward,
+        dropout=dropout,
+        max_tgt_len=max_tgt_len,
         pad_id=pad_id,
+        bos_id=bos_id,
+        eos_id=eos_id,
     ).to(device)
 
     model.load_state_dict(state_dict)
-    model.eval()
-    print("Loaded model from checkpoint.")
 
-    print("Decoding...")
-    predicted_sentence = greedy_decode(
+    # We use only a single sample in batch
+    feature_batch = feature_tensor.unsqueeze(0).to(device)
+    feature_len_batch = torch.tensor(
+        [feature_len],
+        dtype=torch.long,
+        device=device,
+    )
+
+    predicted_sentence = run_single_greedy_decode(
         model=model,
-        feature=feature_batch,
-        feature_len=feature_len,
+        features=feature_batch,
+        feature_len=feature_len_batch,
+        id_to_token=id_to_token,
         bos_id=bos_id,
         eos_id=eos_id,
         pad_id=pad_id,
-        id_to_token=id_to_token,
-        max_len=args.max_decode_len,
+        max_len=max_tgt_len,
     )
 
-    print("\n=== Predicted sentence ===")
-    print("i ' m going to be talking about rhythm . ")
-    print("==========================")
-
+    print("\n====== Inference from raw video ======")
+    print(f"Predicted sentence:\n  {predicted_sentence}")
 
 if __name__ == "__main__":
     main()

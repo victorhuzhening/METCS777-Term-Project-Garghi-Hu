@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import random
+from typing import List, Optional
 from torch.distributions import Normal, Uniform
 
 
@@ -8,6 +10,14 @@ def random_affine_transforms(coordinates,
                              rotation_range=(-30, 30),
                              shear_range=(-0.15, 0.15),
                              reflection_probability=0.3):
+    """
+    Spatial transformations simulating realistic camera movements.
+    :param coordinates: Feature vector
+    :param scale_vals: Mean and std of Gaussian distribution used for scaling
+    :param rotation_range: Low and high of Uniform distribution sampling range
+    :param shear_range:  Low and high of uniform distribution sampling range
+    :param reflection_probability: Probability of flipping left and right hand
+    """
 
     # detects hand coordinates by shape since hands are (21, 3) - 3 channels
     is_hand = coordinates.shape[-1] == 3
@@ -64,9 +74,6 @@ def random_affine_transforms(coordinates,
     return coordinates_transformed
 
 
-import random
-from typing import List, Optional
-
 
 def temporal_jitter_and_shuffle(
     frame_indices: List[int],
@@ -78,38 +85,33 @@ def temporal_jitter_and_shuffle(
     """
     Apply temporal jitter and light frame shuffling to a list of frame indices.
 
-    Args:
-        frame_indices: list of original frame indices (e.g. [0, 1, 2, ..., T-1] after subsampling)
-        num_frames: total number of available frames (frame_dim)
-        max_jitter: maximum absolute offset for jitter (in frames)
-        jitter_prob: probability of jittering a given index
-        shuffle_prob: probability of swapping a frame with its next neighbor
-
-    Returns:
-        A new list of frame indices (same length), possibly with duplicates and slight reordering.
+    :param frame_indices: list of frame indices (feature vector)
+    :param num_frames: number of available frames
+    :param max_jitter: maximum absolute offset for jitter within frame
+    :param jitter_prob: probability of jitter
+    :param shuffle_prob: probability of swapping frame with neighboring frame
     """
     if num_frames <= 0 or len(frame_indices) == 0:
         return frame_indices
 
-    # --- 1. Jitter: randomly nudge some indices by [-max_jitter, max_jitter] ---
+    # Randomly nudge frames
     jittered = []
     for idx in frame_indices:
         if max_jitter > 0 and random.random() < jitter_prob:
             delta = random.randint(-max_jitter, max_jitter)
             new_idx = idx + delta
-            # clamp to valid range [0, num_frames - 1]
-            new_idx = max(0, min(num_frames - 1, new_idx))
+            new_idx = max(0, min(num_frames - 1, new_idx))   # clip to valid range
             jittered.append(new_idx)
         else:
             jittered.append(idx)
 
-    # --- 2. Light shuffling: swap some neighboring indices ---
+    # Randomly swap frames with its neighbor
     shuffled = jittered[:]
     i = 0
     while i < len(shuffled) - 1:
         if random.random() < shuffle_prob:
             shuffled[i], shuffled[i + 1] = shuffled[i + 1], shuffled[i]
-            i += 2  # skip next to avoid double-swapping
+            i += 2             # skip next to avoid double-swapping
         else:
             i += 1
 

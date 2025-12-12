@@ -153,6 +153,8 @@ METCS777-Term-Project-Team6/
 
 ## Cloud Environment Setup
 
+NOTE*** The raw videos are not in the github repo so follow the steps below to run the training model with the training dataset instead. 
+
 ### S3
 
 - Configure an S3 bucket as demonstrated in Lab 1. 
@@ -164,9 +166,9 @@ METCS777-Term-Project-Team6/
 Configure Spark as done in previous labs.
 Your Spark job should have the below arguments:
 1. raw dataset
-2. file 1 for features
-3. file 2 for tokenization
-4. file 3 for vocab
+2. data/raw_videos for features
+3. data/raw_videos for tokenization
+4. data/raw_videos for vocab
 5. output folder argument for training dataset
 
 

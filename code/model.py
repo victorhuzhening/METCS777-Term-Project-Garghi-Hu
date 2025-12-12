@@ -1,331 +1,290 @@
-import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from typing import Optional, Tuple
 
 
-# -------------------------
-#  ECA – Enhanced Channel Attention for 1D
-# -------------------------
-class ECA1D(nn.Module):
+
+class PoseEncoder(nn.Module):
     """
-    Enhanced Channel Attention for 1D feature maps.
-    Expects input: [B, C, T]
+    Encodes ASL feature vectors into latent states for decoder
+    Layers in order:
+      - Linear projection layer
+      - 1D temporal conv
+      - TransformerEncoder stack
+
+    Input dimensions:
+      x:      [B, T, D_in]
+      length: [B]
+
+    Output dimensions:
+      enc_hidden: [B, T', d_model]
+      pad_mask:   [B, T']
     """
-    def __init__(self, kernel_size=5):
+    def __init__(
+        self,
+        input_dim: int,
+        d_model: int = 768,
+        num_layers: int = 4,
+        nhead: int = 8,
+        dim_feedforward: int = 2048,
+        dropout: float = 0.1,
+    ):
         super().__init__()
+
+        self.in_proj = nn.Linear(input_dim, d_model)
+
+        # Temporal downsampling: stride=2 reduces sequence length
         self.conv = nn.Conv1d(
-            in_channels=1,
-            out_channels=1,
-            kernel_size=kernel_size,
-            padding=kernel_size // 2,
-            bias=False,
+            in_channels=d_model,
+            out_channels=d_model,
+            kernel_size=3,
+            stride=2,
+            padding=1,
         )
 
-    def forward(self, x):
-        # x: [B, C, T]
-        # Global average pooling over time: [B, C, 1]
-        y = x.mean(dim=-1, keepdim=True)       # [B, C, 1]
-
-        # Treat channels as "time" for conv: [B, 1, C] -> conv -> [B, 1, C]
-        y = y.transpose(1, 2)                  # [B, 1, C]
-        y = self.conv(y)                       # [B, 1, C]
-        y = y.transpose(1, 2)                  # [B, C, 1]
-
-        y = torch.sigmoid(y)                   # [B, C, 1]
-        return x * y                           # broadcast over T
-
-
-# -------------------------
-#  Depthwise Conv1d
-# -------------------------
-class DepthwiseConv1d(nn.Module):
-    """
-    Depthwise 1D convolution (groups = in_channels).
-    Expects input: [B, C, T]
-    """
-    def __init__(self, in_channels, kernel_size, stride=1, dilation=1, bias=False):
-        super().__init__()
-        # "same" padding approximation
-        pad = (kernel_size // 2) * dilation
-        self.conv = nn.Conv1d(
-            in_channels=in_channels,
-            out_channels=in_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            dilation=dilation,
-            padding=pad,
-            groups=in_channels,
-            bias=bias,
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers,
         )
 
-    def forward(self, x):
-        return self.conv(x)
-
-
-# -------------------------
-#  Conv1DBlock (TF Conv1DBlock analog)
-# -------------------------
-class Conv1DBlock(nn.Module):
-    """
-    Efficient Conv1D block with:
-      1x1 expansion -> depthwise conv -> BN -> ECA -> 1x1 projection -> Dropout -> Residual
-
-    Expects input: [B, C, T] with C == channel_size.
-    """
-    def __init__(
+    def forward(
         self,
-        channel_size,        # C_out = C_in
-        kernel_size,
-        dilation_rate=1,
-        drop_rate=0.0,
-        expand_ratio=2,
-        activation="tanh",
-    ):
-        super().__init__()
-        self.channel_size = channel_size
-        self.drop_rate = drop_rate
-        self.expand_ratio = expand_ratio
-
-        if activation == "tanh":
-            self.act = torch.tanh
-        elif activation == "relu":
-            self.act = F.relu
-        elif activation == "gelu":
-            self.act = F.gelu
-        else:
-            # fall back to tanh
-            self.act = torch.tanh
-
-        in_channels = channel_size
-        hidden_channels = in_channels * expand_ratio
-
-        # 1x1 "Dense" expansion: C_in -> hidden_channels
-        self.expand = nn.Conv1d(in_channels, hidden_channels, kernel_size=1, bias=True)
-
-        # Depthwise temporal conv
-        self.dwconv = DepthwiseConv1d(
-            in_channels=hidden_channels,
-            kernel_size=kernel_size,
-            dilation=dilation_rate,
-            bias=False,
-        )
-
-        self.bn = nn.BatchNorm1d(hidden_channels, momentum=0.95)
-        self.eca = ECA1D(kernel_size=5)
-
-        # Projection back to channel_size
-        self.project = nn.Conv1d(hidden_channels, channel_size, kernel_size=1, bias=True)
-
-        self.dropout = nn.Dropout(drop_rate) if drop_rate > 0 else nn.Identity()
-
-    def forward(self, x):
-        # x: [B, C, T]
-        skip = x
-
-        x = self.expand(x)          # [B, hidden, T]
-        x = self.act(x)
-        x = self.dwconv(x)          # [B, hidden, T]
-        x = self.bn(x)
-        x = self.eca(x)             # [B, hidden, T]
-        x = self.project(x)         # [B, C, T]
-        x = self.dropout(x)
-
-        if x.shape == skip.shape:
-            x = x + skip            # residual
-
-        return x
-
-
-# -------------------------
-#  Positional Encoding (sin/cos)
-# -------------------------
-class PositionalEncoding(nn.Module):
-    """
-    Standard sinusoidal positional encoding.
-    Adds [1, max_len, dim] to input [B, T, dim].
-    """
-    def __init__(self, dim, max_len=5000):
-        super().__init__()
-        pe = torch.zeros(max_len, dim)
-        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, dim, 2, dtype=torch.float32) * (-math.log(10000.0) / dim)
-        )
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)  # [1, max_len, dim]
-        self.register_buffer("pe", pe)
-
-    def forward(self, x):
-        # x: [B, T, dim]
-        T = x.size(1)
-        return x + self.pe[:, :T]
-
-
-# -------------------------
-#  TransformerBlock (encoder style)
-# -------------------------
-class TransformerBlock(nn.Module):
-    """
-    Encoder-style transformer block with:
-      LN -> MHA -> Dropout -> Residual
-      LN -> FFN -> Dropout -> Residual
-
-    Expects input: [B, T, dim]
-    key_padding_mask: [B, T] with True for padded positions.
-    """
-    def __init__(
-        self,
-        dim=256,
-        num_heads=4,
-        expand=4,
-        attn_dropout=0.2,
-        drop_rate=0.2,
-        activation="gelu",
-    ):
-        super().__init__()
-        self.dim = dim
-        self.mha = nn.MultiheadAttention(
-            embed_dim=dim,
-            num_heads=num_heads,
-            dropout=attn_dropout,
-            batch_first=True,  # inputs: [B, T, dim]
-        )
-        self.dropout1 = nn.Dropout(drop_rate)
-        self.norm1 = nn.LayerNorm(dim)
-
-        if activation == "gelu":
-            act_layer = nn.GELU
-        elif activation == "relu":
-            act_layer = nn.ReLU
-        else:
-            act_layer = nn.GELU
-
-        self.ffn = nn.Sequential(
-            nn.Linear(dim, dim * expand, bias=False),
-            act_layer(),
-            nn.Linear(dim * expand, dim, bias=False),
-        )
-        self.dropout2 = nn.Dropout(drop_rate)
-        self.norm2 = nn.LayerNorm(dim)
-
-    def forward(self, x, key_padding_mask=None):
-        # x: [B, T, dim]
-        # key_padding_mask: [B, T] with True for PAD positions
-        attn_out, _ = self.mha(
-            x, x, x,
-            key_padding_mask=key_padding_mask,
-            need_weights=False,
-        )
-        x = x + self.dropout1(attn_out)
-        x = self.norm1(x)
-
-        ffn_out = self.ffn(x)
-        x = x + self.dropout2(ffn_out)
-        x = self.norm2(x)
-        return x
-
-
-# -------------------------
-#  KeypointCTCModel – drop-in for your ASLData features
-# -------------------------
-class KeypointCTCModel(nn.Module):
-    """
-    Drop-in model for your ASLData pipeline.
-
-    Expects:
-      features:    [B, T, D]  (from asl_collate_func)
-      feature_len: [B]        (valid lengths per sample)
-
-    Returns:
-      logits_ctc:   [T, B, vocab_size] – ready for nn.CTCLoss
-      input_lengths: [B]      – same as feature_len
-    """
-    def __init__(
-        self,
-        input_dim,           # D from your feature vector
-        vocab_size,
-        dim=256,             # internal model dimension / conv channels
-        num_conv_blocks=3,
-        num_transformer_blocks=3,
-        max_len=5000,
-    ):
-        super().__init__()
-        self.dim = dim
-        self.vocab_size = vocab_size
-
-        # Project raw features to model dim
-        self.input_proj = nn.Linear(input_dim, dim, bias=False)
-
-        # Positional encoding
-        self.pos_enc = PositionalEncoding(dim=dim, max_len=max_len)
-
-        # Conv/ECA frontend (in [B, C, T])
-        self.conv_blocks = nn.ModuleList([
-            Conv1DBlock(
-                channel_size=dim,
-                kernel_size=11,
-                dilation_rate=1,
-                drop_rate=0.1,
-                expand_ratio=2,
-                activation="tanh",
-            )
-            for _ in range(num_conv_blocks)
-        ])
-
-        # Transformer encoder stack
-        self.transformer_blocks = nn.ModuleList([
-            TransformerBlock(
-                dim=dim,
-                num_heads=4,
-                expand=4,
-                attn_dropout=0.2,
-                drop_rate=0.2,
-                activation="gelu",
-            )
-            for _ in range(num_transformer_blocks)
-        ])
-
-        # Final classification head (per timestep)
-        self.classifier = nn.Linear(dim, vocab_size, bias=True)
-
-    def forward(self, features, feature_len):
+        x: torch.Tensor,
+        length: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        features:    [B, T, D]
-        feature_len: [B]  (valid time steps per sequence)
+        x:      [B, T, D_in]
+        length: [B]
+        returns:
+          enc_hidden: [B, T', d_model]
+          pad_mask:   [B, T'] (bool, True where PAD)
+        """
+        B, T, D = x.shape
+        device = x.device
+
+        x = self.in_proj(x)            # [B, T, d_model]
+
+        # Build padding mask
+        max_t = T
+        pad_mask = (
+            torch.arange(max_t, device=device)[None, :].expand(B, max_t)
+            >= length[:, None]
+        )                              # [B, T]
+
+        x = x.masked_fill(pad_mask.unsqueeze(-1), 0.0)
+
+        # Convolute along time to learn temporal info
+        x = x.transpose(1, 2)          # [B, d_model, T]
+        x = self.conv(x)               # [B, d_model, T']
+        x = x.transpose(1, 2)          # [B, T', d_model]
+        T_prime = x.size(1)
+
+        # Recompute lengths after conv: ceil(len/2)
+        length_ds = (length + 1) // 2
+        max_t_ds = T_prime
+        pad_mask_ds = (
+            torch.arange(max_t_ds, device=device)[None, :].expand(B, max_t_ds)
+            >= length_ds[:, None]
+        )                              # [B, T']
+
+        enc_hidden = self.encoder(
+            x,
+            src_key_padding_mask=pad_mask_ds,
+        )                              # [B, T', d_model]
+
+        return enc_hidden, pad_mask_ds
+
+
+
+class EncoderDecoderModel(nn.Module):
+    """
+    Encoder-Decoder model for pose-2-text generative modelling.
+
+    Blocks in order:
+    Encoder: PoseEncoder over pose feature sequences
+    Decoder: TransformerDecoder over target tokens
+    Linear Layer: projects decoder states to vocab logits for translation
+
+    At inference time we:
+      - Encode pose once
+      - Autoregressively call greedy_decode() to generate tokens.
+    """
+    def __init__(
+        self,
+        feature_dim: int,
+        vocab_size: int,
+        d_model: int = 768,
+        num_encoder_layers: int = 4,
+        num_decoder_layers: int = 6,
+        nhead: int = 8,
+        dim_feedforward: int = 2048,
+        dropout: float = 0.1,
+        max_tgt_len: int = 128,
+        pad_id: int = 0,
+        bos_id: Optional[int] = None,
+        eos_id: Optional[int] = None,
+    ):
+        super().__init__()
+
+        self.pad_id = pad_id
+        self.bos_id = bos_id
+        self.eos_id = eos_id
+        self.d_model = d_model
+        self.max_tgt_len = max_tgt_len
+
+        # Encoder over pose features vectors
+        self.pose_encoder = PoseEncoder(
+            input_dim=feature_dim,
+            d_model=d_model,
+            num_layers=num_encoder_layers,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+        )
+
+        # Token + position embeddings for decoder text
+        self.tok_embed = nn.Embedding(vocab_size, d_model)
+        self.pos_embed = nn.Embedding(max_tgt_len, d_model)
+
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.decoder = nn.TransformerDecoder(
+            decoder_layer,
+            num_layers=num_decoder_layers,
+        )
+
+        self.lm_head = nn.Linear(d_model, vocab_size)
+
+    def _build_causal_mask(self, L: int, device: torch.device) -> torch.Tensor:
+        """
+        Returns [L, L] bool mask where True indicates a masked position.
+        Output used as target sequence for decoder
+        """
+        mask = torch.triu(
+            torch.ones(L, L, device=device, dtype=torch.bool),
+            diagonal=1,
+        )
+        return mask
+
+    def encode_pose(
+        self,
+        pose_feats: torch.Tensor,
+        pose_len: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Run one pose encoder block.
+        """
+        enc_hidden, enc_pad_mask = self.pose_encoder(pose_feats, pose_len)
+        return enc_hidden, enc_pad_mask
+
+    def forward(
+        self,
+        pose_feats: torch.Tensor,       # [B, T, D_in]
+        pose_len: torch.Tensor,         # [B]
+        decoder_input_ids: torch.Tensor # [B, L] (shifted-right tokens)
+    ) -> torch.Tensor:
+        """
+        Forward pass with teacher forcing (gt labels are forced into model as input for next step)
+
+        Params:
+            pose_feats: [B, T, D_in]
+            pose_len: [B]
+            decoder_input_ids: [B, L]
 
         Returns:
-          logits_ctc:    [T, B, vocab_size]
-          input_lengths: [B]
+            logits: [B, L, vocab_size]
         """
-        # Project to model dim
-        x = self.input_proj(features)   # [B, T, dim]
+        B, L = decoder_input_ids.shape
+        device = decoder_input_ids.device
 
-        # Positional encoding
-        x = self.pos_enc(x)            # [B, T, dim]
+        # 1. Encoder
+        enc_hidden, enc_pad_mask = self.encode_pose(pose_feats, pose_len)
 
-        # Conv frontend in [B, C, T]
-        x = x.transpose(1, 2)          # [B, dim, T]
-        for block in self.conv_blocks:
-            x = block(x)               # [B, dim, T]
-        x = x.transpose(1, 2)          # [B, T, dim]
+        # 2. Decoder embeddings
+        positions = torch.arange(L, device=device).unsqueeze(0).expand(B, L)
+        tgt_emb = self.tok_embed(decoder_input_ids) + self.pos_embed(positions)     # [B, L, H]
 
-        # Build key_padding_mask for transformer (True where PAD)
-        B, T, _ = x.shape
-        device = x.device
-        seq_range = torch.arange(T, device=device).unsqueeze(0).expand(B, T)  # [B, T]
-        key_padding_mask = seq_range >= feature_len.unsqueeze(1)              # [B, T]
+        # 3. Causal and target padding masks
+        causal_mask = self._build_causal_mask(L, device)                            # [L, L]
+        tgt_pad_mask = (decoder_input_ids == self.pad_id)                           # [B, L]
 
-        # Transformer encoder stack
-        for block in self.transformer_blocks:
-            x = block(x, key_padding_mask=key_padding_mask)  # [B, T, dim]
+        # 4. Decoder
+        dec_out = self.decoder(
+            tgt=tgt_emb,
+            memory=enc_hidden,
+            tgt_mask=causal_mask,
+            tgt_key_padding_mask=tgt_pad_mask,
+            memory_key_padding_mask=enc_pad_mask,
+        )                                                                           # [B, L, H]
 
-        # Time-distributed classification
-        logits = self.classifier(x)    # [B, T, vocab_size]
+        # 5) Project output to vocab logits
+        logits = self.lm_head(dec_out)                                           # [B, L, vocab_size]
+        return logits
 
-        # For CTCLoss, need [T, B, C]
-        logits_ctc = logits.transpose(0, 1)  # [T, B, vocab_size]
-        input_lengths = feature_len          # [B]
+    @torch.no_grad()
+    def greedy_decode(
+        self,
+        pose_feats: torch.Tensor,
+        pose_len: torch.Tensor,
+        max_len: Optional[int] = None,
+    ) -> torch.Tensor:
+        """
+        Decode a simgle sample greedily
+        Assumes bos_id and eos_id correspond to 1 and 2 in vocab.
+        """
+        self.eval()
+        device = pose_feats.device
+        max_len = max_len or self.max_tgt_len
 
-        return logits_ctc, input_lengths
+        if self.bos_id is None or self.eos_id is None:
+            raise ValueError(
+                "greedy_decode requires bos_id and eos_id to be set on the model."
+            )
+
+        # Encode pose once
+        enc_hidden, enc_pad_mask = self.encode_pose(pose_feats, pose_len)
+
+        generated = [self.bos_id]
+
+        for step in range(max_len):
+            tgt_ids = torch.tensor(
+                [generated],
+                dtype=torch.long,
+                device=device,
+            )
+            B, L = tgt_ids.shape
+
+            positions = torch.arange(L, device=device).unsqueeze(0)
+            tgt_emb = self.tok_embed(tgt_ids) + self.pos_embed(positions)
+
+            causal_mask = self._build_causal_mask(L, device)
+            tgt_pad_mask = (tgt_ids == self.pad_id)
+
+            dec_out = self.decoder(
+                tgt=tgt_emb,
+                memory=enc_hidden,
+                tgt_mask=causal_mask,
+                tgt_key_padding_mask=tgt_pad_mask,
+                memory_key_padding_mask=enc_pad_mask,
+            )
+
+            logits = self.lm_head(dec_out[:, -1, :])
+            next_id = int(logits.argmax(dim=-1).item())    # choose using greedy
+            generated.append(next_id)
+
+            if next_id == self.eos_id:
+                break
+
+        return torch.tensor(generated, dtype=torch.long, device=device)
