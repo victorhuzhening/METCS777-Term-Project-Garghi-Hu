@@ -181,20 +181,144 @@ cd METCS777-Term-Project-Garghi-Hu
 ## Install Dependency
 
 Review the requirements.txt file and ensure that all installed dependencies match the specified versions. This step is critical to prevent compatibility issues or runtime errors.
-
-
-## Create a virtual Conda environemnt
-
-
+If you are using Anaconda you may execute the scripts below in order to get a stable environment.
 ```
+# Create a fresh env with Python 3.10
 conda create -n MMPoseGood python=3.10 -y
+
+# Activate it
 conda activate MMPoseGood
+
+# 1. Make pip compatible with old build systems (and satisfy <= 25.3.2)
+python -m pip install --upgrade "pip<24"
+python -m pip install --upgrade setuptools wheel
+
+# 2. Core required libraries
+pip install numpy==1.26.4
+pip install mediapipe pyarrow
+
+# 3. PyTorch CPU stack
+pip install torch==2.1.0+cpu torchvision==0.16.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
+# 4. OpenCV compatible with NumPy 1.x
+pip install opencv-python==4.10.0.84
+
+# 5. OpenMMLab installer
+pip install openmim==0.3.9
+
+# chumpy has annoying build isolation issues - disable it explicitly
+python -m pip install chumpy==0.70 --no-build-isolation
+
+# Other low-level dependencies
+pip install \
+    xtcocotools==1.14.3 \
+    pycocotools==2.0.10 \
+    cython==3.2.1 \
+    shapely==2.1.2 \
+    terminaltables==3.1.10 \
+    json-tricks==3.17.3 \
+    munkres==1.1.4
+
+# Core runtime lib
+mim install "mmengine==0.10.7"
+
+# Computer vision core
+mim install "mmcv==2.1.0"
+
+# MMPose detection
+mim install "mmdet==3.2.0"
+
+# MMPose
+mim install "mmpose==1.3.2"
 ```
 
-## Run the file
+## Run repo locally
+
+### Custom training data
+
+If you want to get custom training data outside of the dataset included in /data/precomputed_train, you may run the following scripts on any directory containing raw videos.
+The output will be a collection of PyTorch files (1 video = 1 .pt file), and a single vocab meta file.
+
+Note: manually replace video_dir, labels_path, and save_dir with your own paths.
 
 ```
-past the file here with the run code
+import os
+import torch
+from torch.utils.data import DataLoader
+
+MediaPipeCFG = MediaPipeCfg("pretrained_model/hand_landmarker.task")
+options = MediaPipeCFG.create_options()
+MP_model = MediaPipeCFG.HandLandmarker.create_from_options(options)
+
+
+MMPoseCFG = MMPoseCfg(checkpoint_path='pretrained_model/checkpoint/rtmpose-s_simcc-body7_pt-body7_420e-256x192-acd4a1ef_20230504.pth',
+                      config_path='pretrained_model/mmpose_config/rtmpose_m_8xb256-420e_coco-256x192.py')
+body_model = MMPoseCFG.create_model()
+
+save_dir = "precomputed_train"
+os.makedirs(save_dir, exist_ok=True)
+
+pre_train_dataset = ASLData(
+    video_dir="data/raw_videos",
+    MP_model=MP_model,
+    body_cfg=MMPoseCFG,
+    body_model=body_model,
+    labels_path="data/how2sign_realigned_train.csv",
+    min_frequency=1,
+    max_frames=300,
+    frame_subsample=2,
+)
+
+pre_train_loader = DataLoader(
+    pre_train_dataset,
+    batch_size=1,
+    shuffle=False,
+    num_workers=0,
+    collate_fn=lambda b: b[0],
+)
+
+torch.save(
+    {
+        "vocab": pre_train_dataset.vocab,
+        "pad_id": pre_train_dataset.pad_id,
+    },
+    os.path.join(save_dir, "vocab_meta.pt"),
+)
+
+for idx, sample in enumerate(pre_train_loader):
+    sample_to_save = {
+        "features": sample["features"],
+        "feature_len": int(sample["feature_len"]),
+        "label_ids": sample["label_ids"],
+        "label_len": int(sample["label_len"]),
+        "filename": sample["filename"],
+        "raw_label": sample["raw_label"],
+    }
+
+    out_path = os.path.join(save_dir, f"sample_{idx:05d}.pt")
+    torch.save(sample_to_save, out_path)
+
+    if (idx + 1) % 50 == 0:
+        print(f"PROGRESS: Saved {idx+1} samples...")
 ```
 
+### Model training
 
+To train the model yourself, you may either manually configure the arguments inside train.py and run the main function, or execute the following script in terminal from the project's root directory:
+
+Note: please check main function in train.py for configurable hyperparameters.
+```
+python code/train.py --feature_dir ./data/precomputed_train 
+```
+
+### Model inference
+
+To translate a single raw video into an English sentence, you must go into inference.py and manually configure the paths for CKPT_PATH and INPUT_PATH, where CKPT_PATH is the trained model and INPUT_PATH is the video you desire to translate.
+
+```
+# Path to trained model
+CKPT_PATH = "../data/best_encoder_decoder_model.pt"
+
+# Path to raw video you want to translate
+INPUT_PATH = "path/to/raw_videos/-70D86eMmIc_3-5-rgb_front.mp4"
+```
